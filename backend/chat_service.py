@@ -1,10 +1,17 @@
+"""Service layer for the /chat endpoint.
+
+Orchestrates the agent loop, persists conversation messages,
+and returns a structured ChatResult for the route handler.
+"""
+
 from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,6 +25,8 @@ BUSINESS_TABLES = {"employees", "deals", "quotas"}
 
 @dataclass
 class ChatResult:
+    """Structured output from a single chat turn."""
+
     response_text: str
     conversation_id: str
     composed_sql: str | None
@@ -32,6 +41,8 @@ async def process_chat(
     conversation_id: str | None,
     session: AsyncSession,
 ) -> ChatResult:
+    """Run a full chat turn: load context, invoke agent, persist, return result."""
+
     plan = await _load_plan(plan_id, session)
     conversation = await _get_or_create_conversation(conversation_id, plan_id, session)
     skills = await _load_skills(session)
@@ -78,6 +89,8 @@ def _build_messages(
     conversation: Conversation,
     user_message: str,
 ) -> list[dict]:
+    """Assemble the OpenAI messages array with system prompt, filtered history, and new user message."""
+
     system_prompt = build_system_prompt(plan, artifacts, skills, schema_ddls)
 
     history = [
@@ -98,6 +111,8 @@ async def _save_conversation_messages(
     user_message: str,
     all_messages: list[dict],
 ) -> None:
+    """Persist the user message and all agent-generated messages to the conversation."""
+
     history_count = sum(
         1 for m in conversation.messages
         if m.role in ("user", "assistant") and not m.tool_calls_json
@@ -126,7 +141,7 @@ async def _save_conversation_messages(
 
 
 async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
-    from fastapi import HTTPException
+    """Load a plan with its artifacts eagerly loaded."""
 
     result = await session.execute(
         select(Plan).options(selectinload(Plan.artifacts)).where(Plan.id == plan_id)
@@ -138,11 +153,15 @@ async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
 
 
 async def _load_skills(session: AsyncSession) -> list[Skill]:
+    """Load all skills for inclusion in the system prompt."""
+
     result = await session.execute(select(Skill))
     return list(result.scalars())
 
 
 async def _load_artifacts(plan_id: str, session: AsyncSession) -> list[SqlArtifact]:
+    """Load artifacts for a plan, ordered by creation time."""
+
     result = await session.execute(
         select(SqlArtifact).where(SqlArtifact.plan_id == plan_id).order_by(SqlArtifact.created_at)
     )
@@ -150,10 +169,10 @@ async def _load_artifacts(plan_id: str, session: AsyncSession) -> list[SqlArtifa
 
 
 async def _get_schema_ddls(session: AsyncSession) -> list[str]:
+    """Fetch CREATE TABLE DDLs for business tables from information_schema."""
+
     placeholders = ", ".join(f":t{i}" for i in range(len(BUSINESS_TABLES)))
     params = {f"t{i}": name for i, name in enumerate(BUSINESS_TABLES)}
-    from sqlalchemy import text
-
     stmt = text(
         "SELECT table_name, column_name, data_type, is_nullable "
         "FROM information_schema.columns "
@@ -180,7 +199,7 @@ async def _get_or_create_conversation(
     plan_id: str,
     session: AsyncSession,
 ) -> Conversation:
-    from fastapi import HTTPException
+    """Load an existing conversation or create a new one for the plan."""
 
     if conversation_id:
         result = await session.execute(
