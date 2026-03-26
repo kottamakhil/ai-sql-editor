@@ -21,6 +21,8 @@ async def execute_artifact(artifact: SqlArtifact, all_plan_artifacts: list[SqlAr
     named_artifacts = {a.name: a for a in all_plan_artifacts if a.name}
     deps = _resolve_dependencies(artifact, named_artifacts)
     composed_sql = _build_cte_query(deps, artifact.sql_expression)
+    log.info("Executing artifact name=%s, deps=%s", artifact.name, [d.name for d in deps])
+    log.info("Composed SQL: %s", composed_sql[:200])
     return await _run_sql(composed_sql, session)
 
 
@@ -90,10 +92,13 @@ def _build_cte_query(cte_artifacts: list[SqlArtifact], final_sql: str) -> str:
 
 async def _run_sql(sql: str, session: AsyncSession) -> ExecutionResult:
     try:
-        result = await session.execute(text(sql))
-        columns = list(result.keys())
-        rows = [list(row) for row in result.fetchall()]
+        log.info("_run_sql executing: %s", sql[:300])
+        async with session.begin_nested():
+            result = await session.execute(text(sql))
+            columns = list(result.keys())
+            rows = [list(row) for row in result.fetchall()]
+        log.info("_run_sql success: %d rows, columns=%s", len(rows), columns)
         return ExecutionResult(columns=columns, rows=rows, row_count=len(rows))
     except Exception as exc:
-        log.warning("SQL execution failed", extra={"error": str(exc)})
+        log.error("_run_sql FAILED: %s", str(exc))
         return ExecutionResult(columns=[], rows=[], row_count=0, error=str(exc))

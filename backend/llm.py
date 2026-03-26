@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import re
-from typing import Literal
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -23,16 +22,14 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
-class SqlOperation(BaseModel):
-    action: Literal["create", "update", "delete"]
-    artifact_id: str | None = None
-    name: str | None = None
-    sql: str | None = None
+class SqlArtifactSpec(BaseModel):
+    name: str
+    sql: str
 
 
 class ParsedLlmResponse(BaseModel):
     response_text: str
-    operations: list[SqlOperation]
+    artifacts: list[SqlArtifactSpec]
 
 
 def build_system_prompt(
@@ -51,8 +48,7 @@ def build_system_prompt(
     if artifacts:
         lines = []
         for a in artifacts:
-            name_display = f'"{a.name}"' if a.name else "null"
-            lines.append(f'- artifact_id: "{a.id}", name: {name_display}, sql: "{a.sql_expression}"')
+            lines.append(f'- name: "{a.name}", sql: "{a.sql_expression}"')
         artifacts_block = "\n".join(lines)
 
     return f"""You are an AI SQL assistant for building commission plans.
@@ -78,22 +74,16 @@ Frequency: {plan.frequency}
 When the user asks you to build or modify commission SQL:
 
 1. Return your explanation as plain text.
-2. Return SQL operations in a JSON block tagged as ```json:sql_operations.
-3. Each operation must be one of:
-   - {{"action": "create", "name": "cte_name", "sql": "SELECT ..."}} — new named CTE artifact
-   - {{"action": "create", "name": "payout", "sql": "SELECT ..."}} — the final query that assembles results (always named "payout")
-   - {{"action": "update", "artifact_id": "art_1", "sql": "SELECT ..."}} — replace SQL on existing artifact
-   - {{"action": "delete", "artifact_id": "art_2"}} — remove an artifact
-
-4. Prefer decomposing complex queries into named CTE artifacts:
+2. Return the COMPLETE set of SQL artifacts in a JSON block tagged as ```json:sql_artifacts.
+   Each artifact must have a name and SQL:
+   {{"name": "descriptive_name", "sql": "SELECT ..."}}
+3. Always return ALL artifacts needed for the plan, even if only one part changed.
+   The system replaces all artifacts on each turn.
+4. Decompose complex queries into named CTE artifacts:
    - Each CTE should have a descriptive name (e.g. "base_deals", "commissions", "quota_attainment")
    - Named artifacts can reference other named artifacts by name as if they were tables
    - The final artifact must always be named "payout" — it assembles the result from the named CTEs
-   - Each CTE should be independently understandable
-
-5. Always reference artifact_id from <current_sql_artifacts> when updating or deleting.
-6. If the user edits SQL on the left panel and asks you to refine it, update that specific artifact by artifact_id.
-7. You may return multiple operations in one response."""
+   - Each CTE should be independently understandable"""
 
 
 async def call_openai(messages: list[dict]) -> str:
@@ -105,26 +95,26 @@ async def call_openai(messages: list[dict]) -> str:
     return response.choices[0].message.content or ""
 
 
-def parse_sql_operations(response_text: str) -> ParsedLlmResponse:
-    pattern = r"```json:sql_operations\s*\n(.*?)```"
+def parse_llm_response(response_text: str) -> ParsedLlmResponse:
+    pattern = r"```json:sql_artifacts\s*\n(.*?)```"
     match = re.search(pattern, response_text, re.DOTALL)
 
     if not match:
-        return ParsedLlmResponse(response_text=response_text, operations=[])
+        return ParsedLlmResponse(response_text=response_text, artifacts=[])
 
     try:
-        raw_ops = json.loads(match.group(1).strip())
+        raw_list = json.loads(match.group(1).strip())
     except json.JSONDecodeError:
-        log.warning("Failed to parse sql_operations JSON from LLM response")
-        return ParsedLlmResponse(response_text=response_text, operations=[])
+        log.warning("Failed to parse sql_artifacts JSON from LLM response")
+        return ParsedLlmResponse(response_text=response_text, artifacts=[])
 
-    operations = []
-    for raw in raw_ops:
+    artifacts = []
+    for raw in raw_list:
         try:
-            operations.append(SqlOperation(**raw))
+            artifacts.append(SqlArtifactSpec(**raw))
         except Exception:
-            log.warning("Skipping malformed operation", extra={"raw": raw})
+            log.warning("Skipping malformed artifact: %s", raw)
             continue
 
     clean_text = re.sub(pattern, "", response_text, flags=re.DOTALL).strip()
-    return ParsedLlmResponse(response_text=clean_text, operations=operations)
+    return ParsedLlmResponse(response_text=clean_text, artifacts=artifacts)

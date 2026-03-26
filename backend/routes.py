@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from llm import build_system_prompt, call_openai, parse_sql_operations
+from llm import build_system_prompt, call_openai, parse_llm_response
 from models import Conversation, ConversationMessage, Plan, Skill, SqlArtifact
 
 log = logging.getLogger(__name__)
@@ -437,11 +437,11 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
 
     log.info("Calling LLM for plan=%s", plan.id)
     llm_response = await call_openai(messages)
-    parsed = parse_sql_operations(llm_response)
+    parsed = parse_llm_response(llm_response)
     log.info(
-        "LLM returned %d operation(s): %s",
-        len(parsed.operations),
-        [op.action for op in parsed.operations],
+        "LLM returned %d artifact(s): %s",
+        len(parsed.artifacts),
+        [a.name for a in parsed.artifacts],
     )
 
     session.add(ConversationMessage(
@@ -456,38 +456,48 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
 
     await session.commit()
 
-    if parsed.operations:
+    if parsed.artifacts:
         old_count = len(plan.artifacts)
         for old in list(plan.artifacts):
             await session.delete(old)
         await session.commit()
         log.info("Deleted %d old artifact(s) for plan=%s", old_count, plan.id)
 
-    ops_with_sql = [op for op in parsed.operations if op.sql]
-    log.info("Processing %d artifact(s) to create", len(ops_with_sql))
-    operation_results: list[OperationResultOut] = []
-    for op in ops_with_sql:
-        try:
-            op.action = "create"
-            op.artifact_id = None
-            op_result = await _process_operation(op, plan, session)
-            operation_results.append(op_result)
-            log.info("Created artifact name=%s id=%s", op_result.name, op_result.artifact_id)
-        except Exception as exc:
-            log.warning("Operation failed: %s", str(exc))
-            operation_results.append(OperationResultOut(
-                action="create",
-                artifact_id=None,
-                result=ExecutionResult(columns=[], rows=[], row_count=0, error=str(exc)),
-            ))
+        for spec in parsed.artifacts:
+            session.add(SqlArtifact(plan_id=plan.id, name=spec.name, sql_expression=spec.sql))
+        await session.commit()
+        log.info("Created %d artifact(s) for plan=%s", len(parsed.artifacts), plan.id)
 
-    refreshed = await session.execute(
+    all_result = await session.execute(
         select(SqlArtifact)
         .where(SqlArtifact.plan_id == plan.id)
         .order_by(SqlArtifact.created_at)
     )
-    current_artifacts = [_artifact_to_out(a) for a in refreshed.scalars()]
-    log.info("Plan %s now has %d artifact(s)", plan.id, len(current_artifacts))
+    all_artifacts = list(all_result.scalars())
+
+    current_artifacts = [_artifact_to_out(a) for a in all_artifacts]
+    log.info(
+        "Plan %s artifacts: %s",
+        plan.id,
+        [(a.id, a.name) for a in all_artifacts],
+    )
+
+    operation_results: list[OperationResultOut] = []
+    for a in all_artifacts:
+        snapshot = OperationResultOut(
+            action="create",
+            artifact_id=a.id,
+            name=a.name,
+            sql_expression=a.sql_expression,
+        )
+        try:
+            exec_result = await execute_artifact(a, all_artifacts, session)
+            snapshot.result = exec_result
+        except Exception as exc:
+            log.error("Execution failed for artifact %s: %s", a.id, exc)
+            snapshot.result = ExecutionResult(columns=[], rows=[], row_count=0, error=str(exc))
+        operation_results.append(snapshot)
+    log.info("Plan %s: %d artifact(s) executed", plan.id, len(operation_results))
 
     updated_history = persisted_history + [
         {"role": "user", "content": req.message},
@@ -533,66 +543,3 @@ async def _get_or_create_conversation(
     return result.scalar_one()
 
 
-async def _process_operation(
-    op,
-    plan: Plan,
-    session: AsyncSession,
-) -> OperationResultOut:
-    if op.action == "delete":
-        if not op.artifact_id:
-            raise ValueError("delete requires artifact_id")
-        result = await session.execute(select(SqlArtifact).where(SqlArtifact.id == op.artifact_id))
-        artifact = result.scalar_one_or_none()
-        if artifact:
-            await session.delete(artifact)
-            await session.commit()
-        return OperationResultOut(action="delete", artifact_id=op.artifact_id)
-
-    if op.action == "create":
-        artifact = SqlArtifact(plan_id=plan.id, name=op.name, sql_expression=op.sql or "")
-        session.add(artifact)
-        await session.commit()
-        await session.refresh(artifact)
-
-        plan_result = await session.execute(
-            select(SqlArtifact).where(SqlArtifact.plan_id == plan.id)
-        )
-        all_artifacts = list(plan_result.scalars())
-        exec_result = await execute_artifact(artifact, all_artifacts, session)
-        return OperationResultOut(
-            action="create",
-            artifact_id=artifact.id,
-            name=artifact.name,
-            sql_expression=artifact.sql_expression,
-            result=exec_result,
-        )
-
-    if op.action == "update":
-        if not op.artifact_id:
-            raise ValueError("update requires artifact_id")
-        result = await session.execute(select(SqlArtifact).where(SqlArtifact.id == op.artifact_id))
-        artifact = result.scalar_one_or_none()
-        if not artifact:
-            raise ValueError(f"Artifact {op.artifact_id} not found")
-
-        if op.sql:
-            artifact.sql_expression = op.sql
-        if op.name is not None:
-            artifact.name = op.name
-        await session.commit()
-        await session.refresh(artifact)
-
-        plan_result = await session.execute(
-            select(SqlArtifact).where(SqlArtifact.plan_id == plan.id)
-        )
-        all_artifacts = list(plan_result.scalars())
-        exec_result = await execute_artifact(artifact, all_artifacts, session)
-        return OperationResultOut(
-            action="update",
-            artifact_id=artifact.id,
-            name=artifact.name,
-            sql_expression=artifact.sql_expression,
-            result=exec_result,
-        )
-
-    raise ValueError(f"Unknown action: {op.action}")
