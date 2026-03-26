@@ -165,6 +165,7 @@ interface ArtifactCardProps {
 
 export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
   const [view, setView] = useState<'data' | 'sql'>('data');
+  const [collapsed, setCollapsed] = useState(false);
   const [editedSql, setEditedSql] = useState(artifact.sql_expression);
   const { data: result, isLoading, isError } = useExecuteArtifact(artifact.artifact_id);
   const updateMutation = useUpdateArtifact(planId);
@@ -207,10 +208,15 @@ export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
               <polyline points="8 6 2 12 8 18" />
             </svg>
           </IconBtn>
+          <IconBtn title={collapsed ? 'Expand' : 'Collapse'} onClick={() => setCollapsed((c) => !c)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: collapsed ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s ease' }}>
+              <polyline points="18 15 12 9 6 15" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </IconBtn>
         </HeaderActions>
       </Header>
 
-      {view === 'sql' && (
+      {!collapsed && view === 'sql' && (
         <>
           <SqlEditor
             value={editedSql}
@@ -238,7 +244,7 @@ export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
         </>
       )}
 
-      {view === 'data' && (
+      {!collapsed && view === 'data' && (
         <>
           {isLoading && <LoadingBox>Executing query...</LoadingBox>}
           {isError && <ErrorBox>Failed to execute artifact.</ErrorBox>}
