@@ -1,0 +1,15 @@
+{
+  "app.title": "Variable Pay",
+  "plans.heading": "Build, ask, learn ...",
+  "plans.placeholder": "Build, ask, learn about variable compensation plans...",
+  "plans.newPlan": "New plan",
+  "plans.searchPlans": "Search plans...",
+  "plans.recentPlans": "Recent plans",
+  "nav.approvals": "Approvals",
+  "nav.disputes": "Disputes",
+  "nav.workspaces": "Workspaces",
+  "nav.knowledgeCenter": "Knowledge Center",
+  "nav.accessAndPolicies": "Access and Policies",
+  "search.placeholder": "Search or jump to...",
+  "connect.salesforce": "Connect Salesforce"
+}

@@ -95,7 +95,7 @@ ai-sql-editor/
 │   ├── seed.py              # Sample data seeding for employees, deals, quotas
 │   ├── pyproject.toml       # Dependencies (managed by uv)
 │   └── test_end_to_end.sh   # End-to-end test script
-├── client/                  # Frontend (TBD)
+├── frontend/                # React + TypeScript (Vite)
 ├── docs/
 │   ├── ai-sql-editor-poc.md # Full POC specification
 │   └── ARCHITECTURE.md      # Implementation plan

@@ -1,0 +1,16 @@
+{
+  "name": "variable-compensation",
+  "version": "0.1.0",
+  "routes": [
+    {
+      "path": "/variable-compensation/plans",
+      "component": "containers/PlansLanding/PlansLanding"
+    }
+  ],
+  "exports": [
+    "types",
+    "actions/plans",
+    "components/Sidebar",
+    "components/TopBar"
+  ]
+}
