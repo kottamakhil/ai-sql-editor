@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -114,10 +114,10 @@ async def _load_plan_with_artifacts(plan_id: str, session: AsyncSession) -> Plan
 
 
 async def _get_schema_ddls(session: AsyncSession) -> list[str]:
-    result = await session.execute(
-        text("SELECT sql FROM sqlite_master WHERE type='table' AND name IN :names"),
-        {"names": tuple(BUSINESS_TABLES)},
-    )
+    stmt = text(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name IN :names"
+    ).bindparams(bindparam("names", expanding=True))
+    result = await session.execute(stmt, {"names": list(BUSINESS_TABLES)})
     return [row[0] for row in result.fetchall() if row[0]]
 
 

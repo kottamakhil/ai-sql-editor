@@ -13,3 +13,10 @@
 | 6 | API routes — Plan CRUD, Artifact CRUD, Skills, Schema (routes.py) | DONE |
 | 7 | Chat endpoint — orchestration layer (routes.py) | DONE |
 | 8 | Application entry point + README (main.py, README.md) | DONE |
+
+## Bug Fixes
+
+| # | Issue | Fix | Status |
+|---|-------|-----|--------|
+| BF-1 | `/api/chat` returns 500 — `_get_schema_ddls` IN clause tuple binding fails with SQLAlchemy `text()` on SQLite | Use `bindparam("names", expanding=True)` to properly expand the IN clause | DONE |
+| BF-2 | Unhandled exceptions return plain text "Internal Server Error" which breaks JSON piping | Added global `@app.exception_handler(Exception)` returning JSON with error details | DONE |
