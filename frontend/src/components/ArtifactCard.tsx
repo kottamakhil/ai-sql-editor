@@ -29,7 +29,7 @@ const HeaderActions = styled.div`
   gap: 8px;
 `;
 
-const IconBtn = styled.button`
+const IconBtn = styled.button<{ $active?: boolean }>`
   width: 28px;
   height: 28px;
   display: flex;
@@ -37,8 +37,8 @@ const IconBtn = styled.button`
   justify-content: center;
   border: none;
   border-radius: 6px;
-  background: none;
-  color: #6b7280;
+  background: ${(p) => (p.$active ? '#e5e7eb' : 'none')};
+  color: ${(p) => (p.$active ? '#1a1a2e' : '#6b7280')};
   cursor: pointer;
 
   &:hover {
@@ -49,27 +49,6 @@ const IconBtn = styled.button`
   svg {
     width: 14px;
     height: 14px;
-  }
-`;
-
-const ToggleRow = styled.div`
-  display: flex;
-  border-bottom: 1px solid #e5e7eb;
-`;
-
-const ToggleBtn = styled.button<{ $active: boolean }>`
-  flex: 1;
-  padding: 8px;
-  border: none;
-  background: ${(p) => (p.$active ? '#fff' : '#f9fafb')};
-  color: ${(p) => (p.$active ? '#1a1a2e' : '#6b7280')};
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  border-bottom: ${(p) => (p.$active ? '2px solid #5b1647' : '2px solid transparent')};
-
-  &:hover {
-    background: #fff;
   }
 `;
 
@@ -220,21 +199,20 @@ export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
       <Header>
         <ArtifactName>{artifact.name || 'Unnamed artifact'}</ArtifactName>
         <HeaderActions>
-          <IconBtn title="Copy SQL" onClick={handleCopy}>
+          <IconBtn title="View data" $active={view === 'data'} onClick={() => setView('data')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </IconBtn>
+          <IconBtn title={`Edit SQL${hasChanges ? ' (unsaved)' : ''}`} $active={view === 'sql'} onClick={() => setView('sql')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
             </svg>
           </IconBtn>
         </HeaderActions>
       </Header>
-
-      <ToggleRow>
-        <ToggleBtn $active={view === 'data'} onClick={() => setView('data')}>Data</ToggleBtn>
-        <ToggleBtn $active={view === 'sql'} onClick={() => setView('sql')}>
-          SQL{hasChanges ? ' •' : ''}
-        </ToggleBtn>
-      </ToggleRow>
 
       {view === 'sql' && (
         <>
