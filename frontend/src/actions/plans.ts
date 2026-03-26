@@ -108,6 +108,18 @@ export const useCreatePlan = () => {
   });
 };
 
+export const useUpdateArtifact = (planId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ artifactId, data }: { artifactId: string; data: Partial<ArtifactCreate> }) =>
+      updateArtifact(artifactId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan', planId] });
+      qc.invalidateQueries({ queryKey: ['execute'] });
+    },
+  });
+};
+
 export const useChat = () =>
   useMutation({ mutationFn: sendChat });
 

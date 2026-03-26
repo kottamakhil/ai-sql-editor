@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import styled from 'styled-components';
 import type { Artifact } from '../types';
-import { useExecuteArtifact } from '../actions/plans';
+import { useExecuteArtifact, useUpdateArtifact } from '../actions/plans';
 
 const Card = styled.div`
   border: 1px solid #e5e7eb;
@@ -73,7 +73,7 @@ const ToggleBtn = styled.button<{ $active: boolean }>`
   }
 `;
 
-const SqlBlock = styled.pre`
+const SqlEditor = styled.textarea`
   margin: 0;
   padding: 16px;
   background: #1e1e2e;
@@ -81,9 +81,49 @@ const SqlBlock = styled.pre`
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
   line-height: 1.6;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  width: 100%;
+  min-height: 160px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+
+  &:focus {
+    box-shadow: inset 0 0 0 2px rgba(91, 22, 71, 0.4);
+  }
+`;
+
+const SqlFooter = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #1e1e2e;
+  border-top: 1px solid #313244;
+`;
+
+const SaveStatus = styled.span<{ $type: 'info' | 'success' | 'error' }>`
+  font-size: 12px;
+  color: ${(p) =>
+    p.$type === 'success' ? '#a6e3a1' :
+    p.$type === 'error' ? '#f38ba8' :
+    '#6c7086'};
+`;
+
+const SaveBtn = styled.button<{ $disabled: boolean }>`
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: ${(p) => (p.$disabled ? '#45475a' : '#5b1647')};
+  color: ${(p) => (p.$disabled ? '#6c7086' : '#fff')};
+  font-size: 12px;
+  font-weight: 500;
+  cursor: ${(p) => (p.$disabled ? 'default' : 'pointer')};
+  font-family: inherit;
+
+  &:hover {
+    background: ${(p) => (p.$disabled ? '#45475a' : '#4a1239')};
+  }
 `;
 
 const DataSection = styled.div`
@@ -141,14 +181,38 @@ const LoadingBox = styled.div`
 
 interface ArtifactCardProps {
   artifact: Artifact;
+  planId: string;
 }
 
-export function ArtifactCard({ artifact }: ArtifactCardProps) {
+export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
   const [view, setView] = useState<'data' | 'sql'>('data');
+  const [editedSql, setEditedSql] = useState(artifact.sql_expression);
   const { data: result, isLoading, isError } = useExecuteArtifact(artifact.artifact_id);
+  const updateMutation = useUpdateArtifact(planId);
+
+  const hasChanges = editedSql !== artifact.sql_expression;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(artifact.sql_expression);
+    navigator.clipboard.writeText(editedSql);
+  };
+
+  const handleSave = () => {
+    if (!hasChanges || updateMutation.isPending) return;
+    updateMutation.mutate({
+      artifactId: artifact.artifact_id,
+      data: { sql_expression: editedSql },
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      handleSave();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    }
   };
 
   return (
@@ -167,11 +231,37 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
 
       <ToggleRow>
         <ToggleBtn $active={view === 'data'} onClick={() => setView('data')}>Data</ToggleBtn>
-        <ToggleBtn $active={view === 'sql'} onClick={() => setView('sql')}>SQL</ToggleBtn>
+        <ToggleBtn $active={view === 'sql'} onClick={() => setView('sql')}>
+          SQL{hasChanges ? ' •' : ''}
+        </ToggleBtn>
       </ToggleRow>
 
       {view === 'sql' && (
-        <SqlBlock>{artifact.sql_expression}</SqlBlock>
+        <>
+          <SqlEditor
+            value={editedSql}
+            onChange={(e) => setEditedSql(e.target.value)}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+          />
+          <SqlFooter>
+            <SaveStatus
+              $type={
+                updateMutation.isSuccess ? 'success' :
+                updateMutation.isError ? 'error' :
+                'info'
+              }
+            >
+              {updateMutation.isPending ? 'Saving...' :
+               updateMutation.isSuccess ? 'Saved' :
+               updateMutation.isError ? 'Save failed' :
+               hasChanges ? 'Unsaved changes' : 'Cmd+Enter or Cmd+S to save'}
+            </SaveStatus>
+            <SaveBtn $disabled={!hasChanges || updateMutation.isPending} onClick={handleSave}>
+              Save
+            </SaveBtn>
+          </SqlFooter>
+        </>
       )}
 
       {view === 'data' && (

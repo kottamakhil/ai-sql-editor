@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { MOCK_NAV_BADGES } from '../mockservice';
 import { useAppContext } from '../contexts/AppContext';
@@ -203,15 +203,16 @@ const PlansList = styled.div`
   flex-direction: column;
 `;
 
-const PlanItem = styled.button`
+const PlanItem = styled.button<{ $active?: boolean }>`
   display: block;
   width: 100%;
   text-align: left;
   padding: 6px 16px;
   border: none;
-  background: none;
-  color: #374151;
+  background: ${(p) => (p.$active ? '#f3f4f6' : 'none')};
+  color: ${(p) => (p.$active ? '#1a1a2e' : '#374151')};
   font-size: 13px;
+  font-weight: ${(p) => (p.$active ? '600' : '400')};
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -284,6 +285,7 @@ export function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useAppContext();
   const [showNewPlan, setShowNewPlan] = useState(false);
   const navigate = useNavigate();
+  const { planId: activePlanId } = useParams<{ planId: string }>();
   const { data: plans } = usePlans();
 
   return (
@@ -335,6 +337,7 @@ export function Sidebar() {
             {(plans ?? []).map((plan) => (
               <PlanItem
                 key={plan.plan_id}
+                $active={plan.plan_id === activePlanId}
                 onClick={() => navigate(`/variable-compensation/plans/${plan.plan_id}`)}
               >
                 {plan.name}

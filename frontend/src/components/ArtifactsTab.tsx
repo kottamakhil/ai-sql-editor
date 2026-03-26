@@ -18,9 +18,10 @@ const EmptyState = styled.div`
 
 interface ArtifactsTabProps {
   artifacts: Artifact[];
+  planId: string;
 }
 
-export function ArtifactsTab({ artifacts }: ArtifactsTabProps) {
+export function ArtifactsTab({ artifacts, planId }: ArtifactsTabProps) {
   if (artifacts.length === 0) {
     return (
       <Container>
@@ -34,7 +35,7 @@ export function ArtifactsTab({ artifacts }: ArtifactsTabProps) {
   return (
     <Container>
       {artifacts.map((artifact) => (
-        <ArtifactCard key={artifact.artifact_id} artifact={artifact} />
+        <ArtifactCard key={artifact.artifact_id} artifact={artifact} planId={planId} />
       ))}
     </Container>
   );
