@@ -4,6 +4,8 @@ import uuid
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+_MESSAGE_ROLE_MAX = 20
+
 
 def _new_id() -> str:
     return uuid.uuid4().hex[:12]
@@ -84,3 +86,37 @@ class Skill(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    messages: Mapped[list["ConversationMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationMessage.created_at",
+    )
+    plan: Mapped["Plan"] = relationship()
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    conversation_id: Mapped[str] = mapped_column(
+        String(12), ForeignKey("conversations.id"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(_MESSAGE_ROLE_MAX), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")

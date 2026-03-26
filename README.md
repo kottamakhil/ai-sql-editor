@@ -36,9 +36,24 @@ curl -s -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "plan_id": "<plan_id from above>",
-    "message": "Build a 10% commission on all closed-won deals over $50k",
-    "conversation_history": []
+    "message": "Build a 10% commission on all closed-won deals over $50k"
   }' | python -m json.tool
+# Response includes conversation_id — use it for follow-up messages
+
+# Continue the conversation (multi-turn)
+curl -s -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan_id": "<plan_id>",
+    "conversation_id": "<conversation_id from above>",
+    "message": "Add a 2x accelerator for deals over $100k"
+  }' | python -m json.tool
+
+# List conversations for a plan
+curl -s http://localhost:8000/api/plans/<plan_id>/conversations | python -m json.tool
+
+# Get full conversation history
+curl -s http://localhost:8000/api/conversations/<conversation_id> | python -m json.tool
 
 # Execute an artifact individually
 curl -s -X POST http://localhost:8000/api/execute \
@@ -93,6 +108,9 @@ ai-sql-editor/
 | POST | `/api/skills` | Create a skill |
 | GET | `/api/skills` | List all skills |
 | GET | `/api/schema` | Table DDLs for business tables |
+| GET | `/api/plans/{plan_id}/conversations` | List conversations for a plan |
+| GET | `/api/conversations/{conversation_id}` | Get conversation with full message history |
+| DELETE | `/api/conversations/{conversation_id}` | Delete a conversation |
 
 ## Environment variables
 

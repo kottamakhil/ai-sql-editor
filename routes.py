@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
 from llm import build_system_prompt, call_openai, parse_sql_operations
-from models import Plan, Skill, SqlArtifact
+from models import Conversation, ConversationMessage, Plan, Skill, SqlArtifact
 
 log = logging.getLogger(__name__)
 
@@ -85,14 +85,36 @@ class OperationResultOut(BaseModel):
 class ChatRequest(BaseModel):
     plan_id: str
     message: str
+    conversation_id: str | None = None
     conversation_history: list[dict] = []
+
+
+class MessageOut(BaseModel):
+    message_id: str
+    role: str
+    content: str
 
 
 class ChatResponse(BaseModel):
     response: str
+    conversation_id: str
     operations: list[OperationResultOut]
     current_artifacts: list[ArtifactOut]
     conversation_history: list[dict]
+
+
+class ConversationOut(BaseModel):
+    conversation_id: str
+    plan_id: str
+    title: str | None
+    messages: list[MessageOut]
+
+
+class ConversationSummaryOut(BaseModel):
+    conversation_id: str
+    plan_id: str
+    title: str | None
+    message_count: int
 
 
 class PreviewResponse(BaseModel):
@@ -243,6 +265,62 @@ async def list_skills(session: AsyncSession = Depends(get_db)):
     return [SkillOut(skill_id=s.id, name=s.name, content=s.content) for s in result.scalars()]
 
 
+# --- Conversations ---
+
+
+@router.get("/plans/{plan_id}/conversations", response_model=list[ConversationSummaryOut])
+async def list_conversations(plan_id: str, session: AsyncSession = Depends(get_db)):
+    await _load_plan_with_artifacts(plan_id, session)
+    result = await session.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.messages))
+        .where(Conversation.plan_id == plan_id)
+        .order_by(Conversation.created_at.desc())
+    )
+    return [
+        ConversationSummaryOut(
+            conversation_id=c.id,
+            plan_id=c.plan_id,
+            title=c.title,
+            message_count=len(c.messages),
+        )
+        for c in result.scalars()
+    ]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationOut)
+async def get_conversation(conversation_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.messages))
+        .where(Conversation.id == conversation_id)
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+    return ConversationOut(
+        conversation_id=conv.id,
+        plan_id=conv.plan_id,
+        title=conv.title,
+        messages=[
+            MessageOut(message_id=m.id, role=m.role, content=m.content)
+            for m in conv.messages
+        ],
+    )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(conversation_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+    await session.delete(conv)
+    await session.commit()
+
+
 # --- Schema introspection ---
 
 
@@ -305,18 +383,38 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
     plan = await _load_plan_with_artifacts(req.plan_id, session)
     artifacts = list(plan.artifacts)
 
+    conversation = await _get_or_create_conversation(
+        req.conversation_id, req.plan_id, session
+    )
+
     skills_result = await session.execute(select(Skill))
     skills = list(skills_result.scalars())
 
     schema_ddls = await _get_schema_ddls(session)
     system_prompt = build_system_prompt(plan, artifacts, skills, schema_ddls)
 
+    persisted_history = [
+        {"role": m.role, "content": m.content} for m in conversation.messages
+    ]
+
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(req.conversation_history)
+    messages.extend(persisted_history)
     messages.append({"role": "user", "content": req.message})
 
     llm_response = await call_openai(messages)
     parsed = parse_sql_operations(llm_response)
+
+    session.add(ConversationMessage(
+        conversation_id=conversation.id, role="user", content=req.message,
+    ))
+    session.add(ConversationMessage(
+        conversation_id=conversation.id, role="assistant", content=parsed.response_text,
+    ))
+
+    if conversation.title is None:
+        conversation.title = req.message[:120]
+
+    await session.commit()
 
     operation_results: list[OperationResultOut] = []
     for op in parsed.operations:
@@ -338,17 +436,43 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
     )
     current_artifacts = [_artifact_to_out(a) for a in refreshed.scalars()]
 
-    updated_history = req.conversation_history + [
+    updated_history = persisted_history + [
         {"role": "user", "content": req.message},
         {"role": "assistant", "content": parsed.response_text},
     ]
 
     return ChatResponse(
         response=parsed.response_text,
+        conversation_id=conversation.id,
         operations=operation_results,
         current_artifacts=current_artifacts,
         conversation_history=updated_history,
     )
+
+
+async def _get_or_create_conversation(
+    conversation_id: str | None,
+    plan_id: str,
+    session: AsyncSession,
+) -> Conversation:
+    if conversation_id:
+        result = await session.execute(
+            select(Conversation)
+            .options(selectinload(Conversation.messages))
+            .where(Conversation.id == conversation_id)
+        )
+        conv = result.scalar_one_or_none()
+        if not conv:
+            raise HTTPException(
+                status_code=404, detail=f"Conversation {conversation_id} not found"
+            )
+        return conv
+
+    conv = Conversation(plan_id=plan_id)
+    session.add(conv)
+    await session.flush()
+    conv.messages = []
+    return conv
 
 
 async def _process_operation(
