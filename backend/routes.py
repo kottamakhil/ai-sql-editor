@@ -166,6 +166,24 @@ def _artifact_to_out(a: SqlArtifact) -> ArtifactOut:
 # --- Plan CRUD ---
 
 
+@router.get("/plans", response_model=list[PlanOut])
+async def list_plans(session: AsyncSession = Depends(get_db)):
+    result = await session.execute(
+        select(Plan).options(selectinload(Plan.artifacts)).order_by(Plan.created_at.desc())
+    )
+    return [
+        PlanOut(
+            plan_id=p.id,
+            name=p.name,
+            plan_type=p.plan_type,
+            frequency=p.frequency,
+            mode=p.mode,
+            artifacts=[_artifact_to_out(a) for a in p.artifacts],
+        )
+        for p in result.scalars()
+    ]
+
+
 @router.post("/plans", response_model=PlanOut)
 async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(get_db)):
     plan = Plan(

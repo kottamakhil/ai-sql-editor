@@ -108,6 +108,7 @@ ai-sql-editor/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/ping` | Health check |
+| GET | `/api/plans` | List all plans |
 | POST | `/api/plans` | Create a plan |
 | GET | `/api/plans/{plan_id}` | Get plan with artifacts |
 | PATCH | `/api/plans/{plan_id}` | Update plan fields |
