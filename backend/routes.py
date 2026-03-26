@@ -300,6 +300,29 @@ async def list_skills(session: AsyncSession = Depends(get_db)):
     return [SkillOut(skill_id=s.id, name=s.name, content=s.content) for s in result.scalars()]
 
 
+@router.get("/skills/{skill_id}", response_model=SkillOut)
+async def get_skill(skill_id: str, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Skill).where(Skill.id == skill_id))
+    skill = result.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill {skill_id} not found")
+    return SkillOut(skill_id=skill.id, name=skill.name, content=skill.content)
+
+
+@router.put("/skills/{skill_id}", response_model=SkillOut)
+async def update_skill(skill_id: str, req: CreateSkillRequest, session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(Skill).where(Skill.id == skill_id))
+    skill = result.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill {skill_id} not found")
+
+    skill.name = req.name
+    skill.content = req.content
+    await session.commit()
+    await session.refresh(skill)
+    return SkillOut(skill_id=skill.id, name=skill.name, content=skill.content)
+
+
 # --- Conversations ---
 
 

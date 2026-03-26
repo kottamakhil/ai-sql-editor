@@ -120,6 +120,8 @@ ai-sql-editor/
 | GET | `/api/plans/{plan_id}/preview` | Full composed CTE query + results |
 | POST | `/api/skills` | Create a skill |
 | GET | `/api/skills` | List all skills |
+| GET | `/api/skills/{skill_id}` | Get a skill |
+| PUT | `/api/skills/{skill_id}` | Update a skill (full replace) |
 | GET | `/api/schema` | Table DDLs for business tables |
 | GET | `/api/plans/{plan_id}/conversations` | List conversations for a plan |
 | GET | `/api/conversations/{conversation_id}` | Get conversation with full message history |
