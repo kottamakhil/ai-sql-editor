@@ -81,6 +81,19 @@ class ToolCallOut(BaseModel):
     error: str | None = None
 
 
+class ClarificationOption(BaseModel):
+    value: str
+    label: str
+
+
+class ClarificationQuestion(BaseModel):
+    id: str
+    question: str
+    options: list[ClarificationOption]
+    allow_multiple: bool = False
+    allow_freetext: bool = False
+
+
 class ChatRequest(BaseModel):
     plan_id: str
     message: str
@@ -101,12 +114,14 @@ class ChatResponse(BaseModel):
     current_artifacts: list[ArtifactOut]
     plan: PlanOut
     iterations: int
+    pending_questions: list[ClarificationQuestion] | None = None
 
 
 class ConversationOut(BaseModel):
     conversation_id: str
     plan_id: str
     title: str | None
+    pending_questions: list[ClarificationQuestion] | None = None
     messages: list[MessageOut]
 
 
@@ -325,10 +340,16 @@ async def get_conversation(conversation_id: str, session: AsyncSession = Depends
         m for m in conv.messages
         if m.role in ("user", "assistant") and not m.tool_calls_json and m.content
     ]
+    pending = None
+    if conv.pending_questions_json:
+        import json as _json
+        pending = _parse_questions(_json.loads(conv.pending_questions_json))
+
     return ConversationOut(
         conversation_id=conv.id,
         plan_id=conv.plan_id,
         title=conv.title,
+        pending_questions=pending,
         messages=[
             MessageOut(message_id=m.id, role=m.role, content=m.content)
             for m in visible_messages
@@ -437,6 +458,23 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
             artifacts=current_artifacts,
         ),
         iterations=result.agent_result.iterations,
+        pending_questions=_parse_questions(result.agent_result.pending_questions),
     )
+
+
+def _parse_questions(raw: list[dict] | None) -> list[ClarificationQuestion] | None:
+    """Convert raw question dicts from the agent into Pydantic models."""
+    if not raw:
+        return None
+    return [
+        ClarificationQuestion(
+            id=q["id"],
+            question=q["question"],
+            options=[ClarificationOption(**o) for o in q.get("options", [])],
+            allow_multiple=q.get("allow_multiple", False),
+            allow_freetext=q.get("allow_freetext", False),
+        )
+        for q in raw
+    ]
 
 

@@ -28,6 +28,7 @@ registry = ToolRegistry()
 
 
 def _register_all() -> None:
+    from tools.ask_clarification import AskClarificationTool
     from tools.execute_query import ExecuteQueryTool
     from tools.update_plan import UpdatePlanTool
     from tools.update_sql_artifacts import UpdateSqlArtifactsTool
@@ -37,6 +38,7 @@ def _register_all() -> None:
     registry.register(UpdatePlanTool())
     registry.register(ExecuteQueryTool())
     registry.register(ValidateSqlTool())
+    registry.register(AskClarificationTool())
 
 
 _register_all()

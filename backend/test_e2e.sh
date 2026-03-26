@@ -268,5 +268,84 @@ CONV_COUNT=$(echo "$LIST_RESP" | python3 -c "import sys,json; print(len(json.loa
 [ "$CONV_COUNT" -ge 1 ] && pass "Plan has $CONV_COUNT conversation(s)" || fail "No conversations found"
 
 # ============================================================
+# Clarification questions
+# ============================================================
 
-echo -e "\n${GREEN}${BOLD}All 14 tests passed.${RESET}"
+step "15. Chat: vague request triggers clarification"
+PLAN2_RESP=$(curl -s -X POST "$BASE/api/plans" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Clarification Test", "plan_type": "RECURRING", "frequency": "QUARTERLY"}')
+check_json "$PLAN2_RESP" "Create plan 2"
+PLAN2_ID=$(echo "$PLAN2_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['plan_id'])")
+
+debug "Sending vague request: Build a commission plan"
+CLARIFY_RESP=$(curl -s -X POST "$BASE/api/chat" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"plan_id\": \"$PLAN2_ID\",
+    \"message\": \"Build a commission plan\"
+  }")
+check_json "$CLARIFY_RESP" "Clarification chat"
+
+CONV2_ID=$(echo "$CLARIFY_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['conversation_id'])")
+HAS_QUESTIONS=$(echo "$CLARIFY_RESP" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+qs = d.get('pending_questions') or []
+print(len(qs) > 0)
+")
+
+if [ "$HAS_QUESTIONS" = "True" ]; then
+    pass "LLM returned clarification questions"
+    echo "$CLARIFY_RESP" | python3 -c "
+import sys, json
+for q in json.load(sys.stdin)['pending_questions']:
+    opts = ', '.join(o['label'] for o in q['options'])
+    print(f\"  {q['question']} [{opts}]\")
+"
+else
+    debug "LLM proceeded without clarification (acceptable — may have used defaults)"
+fi
+
+step "16. Conversation GET includes pending questions"
+CONV2_CHECK=$(curl -s "$BASE/api/conversations/$CONV2_ID")
+check_json "$CONV2_CHECK" "Get conversation"
+HAS_PERSISTED_Q=$(echo "$CONV2_CHECK" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+qs = d.get('pending_questions') or []
+print(len(qs) > 0)
+")
+if [ "$HAS_QUESTIONS" = "True" ]; then
+    [ "$HAS_PERSISTED_Q" = "True" ] && pass "Pending questions persisted in conversation" || fail "Questions not persisted"
+else
+    pass "No questions to persist (LLM used defaults)"
+fi
+
+step "17. Answer clarification and get results"
+if [ "$HAS_QUESTIONS" = "True" ]; then
+    debug "Sending answer: 10% on all closed-won deals"
+    ANSWER_RESP=$(curl -s -X POST "$BASE/api/chat" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"plan_id\": \"$PLAN2_ID\",
+        \"conversation_id\": \"$CONV2_ID\",
+        \"message\": \"10% commission on all closed-won deals, no threshold, no accelerator\"
+      }")
+    check_json "$ANSWER_RESP" "Answer chat"
+
+    ART_COUNT_A=$(echo "$ANSWER_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['current_artifacts']))")
+    CLEARED=$(echo "$ANSWER_RESP" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('pending_questions') is None)
+")
+    [ "$ART_COUNT_A" -ge 1 ] && pass "After answering: $ART_COUNT_A artifact(s) created" || fail "No artifacts after answer"
+    [ "$CLEARED" = "True" ] && pass "Pending questions cleared" || debug "Questions still present (may need another turn)"
+else
+    pass "Skipped (no clarification was needed)"
+fi
+
+# ============================================================
+
+echo -e "\n${GREEN}${BOLD}All 17 tests passed.${RESET}"

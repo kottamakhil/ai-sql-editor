@@ -65,6 +65,12 @@ async def process_chat(
     )
 
     await _save_conversation_messages(session, conversation, message, messages)
+
+    if agent_result.pending_questions:
+        conversation.pending_questions_json = json.dumps(agent_result.pending_questions)
+    else:
+        conversation.pending_questions_json = None
+
     await session.commit()
 
     await session.refresh(plan)
