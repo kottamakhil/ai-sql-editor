@@ -116,5 +116,4 @@ def parse_llm_response(response_text: str) -> ParsedLlmResponse:
             log.warning("Skipping malformed artifact: %s", raw)
             continue
 
-    clean_text = re.sub(pattern, "", response_text, flags=re.DOTALL).strip()
-    return ParsedLlmResponse(response_text=clean_text, artifacts=artifacts)
+    return ParsedLlmResponse(response_text=response_text, artifacts=artifacts)
