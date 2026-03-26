@@ -28,6 +28,13 @@ The server creates tables and seeds sample data on first run.
 ## Quick test
 
 ```bash
+# Run the full end-to-end test suite (11 tests)
+cd backend && ./test_end_to_end.sh
+```
+
+Or test individual endpoints:
+
+```bash
 # Create a plan
 curl -s -X POST http://localhost:8000/api/plans \
   -H "Content-Type: application/json" \
@@ -87,7 +94,7 @@ ai-sql-editor/
 │   ├── executor.py          # CTE dependency resolution + SQL execution engine
 │   ├── seed.py              # Sample data seeding for employees, deals, quotas
 │   ├── pyproject.toml       # Dependencies (managed by uv)
-│   └── test_supabase.sh     # End-to-end test script
+│   └── test_end_to_end.sh   # End-to-end test script
 ├── client/                  # Frontend (TBD)
 ├── docs/
 │   ├── ai-sql-editor-poc.md # Full POC specification
