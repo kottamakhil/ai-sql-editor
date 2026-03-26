@@ -77,6 +77,9 @@ export const fetchSkills = () => http<Skill[]>('/skills');
 export const createSkill = (data: { name: string; content: string }) =>
   http<Skill>('/skills', { method: 'POST', body: JSON.stringify(data) });
 
+export const updateSkill = (skillId: string, data: { name: string; content: string }) =>
+  http<Skill>(`/skills/${skillId}`, { method: 'PUT', body: JSON.stringify(data) });
+
 // ---- Schema ----
 
 export const fetchSchema = () => http<SchemaResponse>('/schema');
@@ -130,6 +133,15 @@ export const useCreateSkill = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createSkill,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['skills'] }),
+  });
+};
+
+export const useUpdateSkill = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ skillId, data }: { skillId: string; data: { name: string; content: string } }) =>
+      updateSkill(skillId, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['skills'] }),
   });
 };

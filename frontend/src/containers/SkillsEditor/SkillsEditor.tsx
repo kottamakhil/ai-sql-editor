@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import styled from 'styled-components';
 import type { Skill } from '../../types';
-import { useSkills, useCreateSkill } from '../../actions/plans';
+import { useSkills, useCreateSkill, useUpdateSkill } from '../../actions/plans';
 
 const Container = styled.div`
   display: flex;
@@ -182,6 +182,7 @@ type EditorMode = { kind: 'idle' } | { kind: 'view'; skill: Skill } | { kind: 'c
 export function SkillsEditor() {
   const { data: skills, isLoading } = useSkills();
   const createMutation = useCreateSkill();
+  const updateMutation = useUpdateSkill();
 
   const [mode, setMode] = useState<EditorMode>({ kind: 'idle' });
   const [name, setName] = useState('');
@@ -191,12 +192,14 @@ export function SkillsEditor() {
     setMode({ kind: 'view', skill });
     setName(skill.name);
     setContent(skill.content);
+    updateMutation.reset();
   };
 
   const handleNewSkill = () => {
     setMode({ kind: 'create' });
     setName('');
     setContent('');
+    updateMutation.reset();
   };
 
   const handleCreate = () => {
@@ -211,15 +214,36 @@ export function SkillsEditor() {
     );
   };
 
+  const handleUpdate = () => {
+    if (mode.kind !== 'view' || !name.trim() || !content.trim() || updateMutation.isPending) return;
+    updateMutation.mutate(
+      { skillId: mode.skill.skill_id, data: { name: name.trim(), content: content.trim() } },
+      {
+        onSuccess: (updated) => {
+          setMode({ kind: 'view', skill: updated });
+        },
+      },
+    );
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && mode.kind === 'create') {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      handleCreate();
+      if (mode.kind === 'create') handleCreate();
+      else if (mode.kind === 'view') handleUpdate();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      if (mode.kind === 'view') handleUpdate();
+      else if (mode.kind === 'create') handleCreate();
     }
   };
 
-  const isEditing = mode.kind === 'create';
+  const isCreating = mode.kind === 'create';
   const activeSkillId = mode.kind === 'view' ? mode.skill.skill_id : null;
+  const hasChanges = mode.kind === 'view'
+    ? name !== mode.skill.name || content !== mode.skill.content
+    : false;
 
   return (
     <Container>
@@ -274,14 +298,21 @@ export function SkillsEditor() {
           <>
             <EditorHeader>
               <EditorTitle>
-                {isEditing ? 'New Skill' : name}
+                {isCreating ? 'New Skill' : name}
               </EditorTitle>
-              {isEditing && (
+              {isCreating ? (
                 <SaveBtn
                   $disabled={!name.trim() || !content.trim() || createMutation.isPending}
                   onClick={handleCreate}
                 >
                   {createMutation.isPending ? 'Creating...' : 'Create'}
+                </SaveBtn>
+              ) : (
+                <SaveBtn
+                  $disabled={!hasChanges || !name.trim() || !content.trim() || updateMutation.isPending}
+                  onClick={handleUpdate}
+                >
+                  {updateMutation.isPending ? 'Saving...' : 'Save'}
                 </SaveBtn>
               )}
             </EditorHeader>
@@ -292,7 +323,6 @@ export function SkillsEditor() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Commission Calculation Rules"
-                  readOnly={!isEditing}
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -301,16 +331,23 @@ export function SkillsEditor() {
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="Write the skill content that will be injected into AI prompts..."
-                  readOnly={!isEditing}
                 />
               </div>
             </EditorBody>
             <StatusBar>
-              {isEditing
+              {isCreating
                 ? createMutation.isError
                   ? 'Error creating skill'
                   : 'Cmd+Enter to create'
-                : `Skill ID: ${mode.kind === 'view' ? mode.skill.skill_id : ''}`}
+                : updateMutation.isPending
+                  ? 'Saving...'
+                  : updateMutation.isSuccess && !hasChanges
+                    ? 'Saved'
+                    : updateMutation.isError
+                      ? 'Error saving'
+                      : hasChanges
+                        ? 'Unsaved changes · Cmd+S to save'
+                        : 'Cmd+S to save'}
             </StatusBar>
           </>
         )}
