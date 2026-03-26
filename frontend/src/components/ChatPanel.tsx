@@ -4,6 +4,15 @@ import Markdown from 'react-markdown';
 import { useChat, useConversations, useConversation } from '../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
 
+const thinScrollbar = `
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+  &::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+`;
+
 const Panel = styled.div`
   width: 360px;
   min-width: 360px;
@@ -21,6 +30,7 @@ const MessagesArea = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
+  ${thinScrollbar}
 `;
 
 const MessageBubble = styled.div<{ $role: string }>`
@@ -83,9 +93,11 @@ const Textarea = styled.textarea`
   font-family: inherit;
   color: #1a1a2e;
   line-height: 1.5;
-  min-height: 20px;
-  max-height: 100px;
+  min-height: 40px;
+  max-height: 160px;
+  overflow-y: auto;
   background: transparent;
+  ${thinScrollbar}
 
   &::placeholder {
     color: #9ca3af;
@@ -165,6 +177,7 @@ export function ChatPanel({ planId }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   const chatMutation = useChat();
@@ -193,6 +206,13 @@ export function ChatPanel({ planId }: ChatPanelProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, []);
+
   const canSend = input.trim().length > 0 && !isThinking;
 
   const handleSend = () => {
@@ -200,6 +220,7 @@ export function ChatPanel({ planId }: ChatPanelProps) {
 
     const userMsg = input.trim();
     setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setIsThinking(true);
 
@@ -267,9 +288,10 @@ export function ChatPanel({ planId }: ChatPanelProps) {
       <InputArea>
         <InputWrapper>
           <Textarea
-            rows={1}
+            ref={textareaRef}
+            rows={2}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { setInput(e.target.value); autoResize(); }}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question or request a change..."
           />
