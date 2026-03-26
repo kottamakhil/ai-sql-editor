@@ -28,3 +28,4 @@
 | F-1 | Persist chat history — `Conversation` + `ConversationMessage` models, CRUD routes, `/chat` auto-saves messages and supports `conversation_id` for multi-turn | DONE |
 | F-2 | Supabase (PostgreSQL) — removed SQLite, now requires `DATABASE_URL` pointing to Postgres | DONE |
 | F-3 | Monorepo layout — moved backend code into `backend/`, reserving `client/` for frontend | DONE |
+| F-4 | Agentic tool calling — replaced regex-parsed LLM responses with OpenAI tool calling. Multi-turn loop with 4 tools: `update_sql_artifacts`, `update_plan`, `execute_query`, `validate_sql`. Self-healing on SQL errors. | DONE |

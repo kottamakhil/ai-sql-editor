@@ -115,8 +115,19 @@ class ConversationMessage(Base):
     )
     role: Mapped[str] = mapped_column(String(_MESSAGE_ROLE_MAX), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_call_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tool_calls_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+    def to_openai_message(self) -> dict:
+        msg: dict = {"role": self.role, "content": self.content}
+        if self.role == "tool" and self.tool_call_id:
+            msg["tool_call_id"] = self.tool_call_id
+        if self.role == "assistant" and self.tool_calls_json:
+            import json
+            msg["tool_calls"] = json.loads(self.tool_calls_json)
+        return msg

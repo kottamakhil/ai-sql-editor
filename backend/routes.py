@@ -2,21 +2,20 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from chat_service import ChatResult, process_chat
+from chat_service import _get_schema_ddls as get_schema_ddls
+from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from llm import build_system_prompt, call_openai, parse_llm_response
-from models import Conversation, ConversationMessage, Plan, Skill, SqlArtifact
+from models import Conversation, Plan, Skill, SqlArtifact
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
-
-BUSINESS_TABLES = {"employees", "deals", "quotas"}
-
 
 # --- Request / Response schemas ---
 
@@ -74,19 +73,18 @@ class ExecuteRequest(BaseModel):
     sql_expression: str | None = None
 
 
-class OperationResultOut(BaseModel):
-    action: str
-    artifact_id: str | None = None
-    name: str | None = None
-    sql_expression: str | None = None
-    result: ExecutionResult | None = None
+class ToolCallOut(BaseModel):
+    tool_name: str
+    arguments: dict
+    success: bool
+    result_data: dict | None = None
+    error: str | None = None
 
 
 class ChatRequest(BaseModel):
     plan_id: str
     message: str
     conversation_id: str | None = None
-    conversation_history: list[dict] = []
 
 
 class MessageOut(BaseModel):
@@ -99,9 +97,10 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: str
     composed_sql: str | None = None
-    operations: list[OperationResultOut]
+    tool_calls: list[ToolCallOut]
     current_artifacts: list[ArtifactOut]
-    conversation_history: list[dict]
+    plan: PlanOut
+    iterations: int
 
 
 class ConversationOut(BaseModel):
@@ -124,40 +123,6 @@ class PreviewResponse(BaseModel):
 
 
 # --- Helpers ---
-
-
-async def _load_plan_with_artifacts(plan_id: str, session: AsyncSession) -> Plan:
-    result = await session.execute(
-        select(Plan).options(selectinload(Plan.artifacts)).where(Plan.id == plan_id)
-    )
-    plan = result.scalar_one_or_none()
-    if not plan:
-        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
-    return plan
-
-
-async def _get_schema_ddls(session: AsyncSession) -> list[str]:
-    placeholders = ", ".join(f":t{i}" for i in range(len(BUSINESS_TABLES)))
-    params = {f"t{i}": name for i, name in enumerate(BUSINESS_TABLES)}
-    stmt = text(
-        "SELECT table_name, column_name, data_type, is_nullable "
-        "FROM information_schema.columns "
-        f"WHERE table_schema = 'public' AND table_name IN ({placeholders}) "
-        "ORDER BY table_name, ordinal_position"
-    )
-    result = await session.execute(stmt, params)
-    rows = result.fetchall()
-
-    tables: dict[str, list[str]] = {}
-    for table_name, col_name, data_type, nullable in rows:
-        tables.setdefault(table_name, [])
-        null_str = "" if nullable == "YES" else " NOT NULL"
-        tables[table_name].append(f"  {col_name} {data_type.upper()}{null_str}")
-
-    return [
-        f"CREATE TABLE {name} (\n" + ",\n".join(cols) + "\n)"
-        for name, cols in tables.items()
-    ]
 
 
 def _artifact_to_out(a: SqlArtifact) -> ArtifactOut:
@@ -208,7 +173,7 @@ async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(ge
 
 @router.get("/plans/{plan_id}", response_model=PlanOut)
 async def get_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
-    plan = await _load_plan_with_artifacts(plan_id, session)
+    plan = await load_plan(plan_id, session)
     return PlanOut(
         plan_id=plan.id,
         name=plan.name,
@@ -221,7 +186,7 @@ async def get_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
 
 @router.patch("/plans/{plan_id}", response_model=PlanOut)
 async def update_plan(plan_id: str, req: UpdatePlanRequest, session: AsyncSession = Depends(get_db)):
-    plan = await _load_plan_with_artifacts(plan_id, session)
+    plan = await load_plan(plan_id, session)
 
     if req.name is not None:
         plan.name = req.name.strip()
@@ -247,7 +212,7 @@ async def update_plan(plan_id: str, req: UpdatePlanRequest, session: AsyncSessio
 
 @router.post("/plans/{plan_id}/artifacts", response_model=ArtifactOut)
 async def create_artifact(plan_id: str, req: CreateArtifactRequest, session: AsyncSession = Depends(get_db)):
-    await _load_plan_with_artifacts(plan_id, session)
+    await load_plan(plan_id, session)
     artifact = SqlArtifact(plan_id=plan_id, name=req.name, sql_expression=req.sql_expression)
     session.add(artifact)
     await session.commit()
@@ -328,7 +293,7 @@ async def update_skill(skill_id: str, req: CreateSkillRequest, session: AsyncSes
 
 @router.get("/plans/{plan_id}/conversations", response_model=list[ConversationSummaryOut])
 async def list_conversations(plan_id: str, session: AsyncSession = Depends(get_db)):
-    await _load_plan_with_artifacts(plan_id, session)
+    await load_plan(plan_id, session)
     result = await session.execute(
         select(Conversation)
         .options(selectinload(Conversation.messages))
@@ -356,13 +321,17 @@ async def get_conversation(conversation_id: str, session: AsyncSession = Depends
     conv = result.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+    visible_messages = [
+        m for m in conv.messages
+        if m.role in ("user", "assistant") and not m.tool_calls_json and m.content
+    ]
     return ConversationOut(
         conversation_id=conv.id,
         plan_id=conv.plan_id,
         title=conv.title,
         messages=[
             MessageOut(message_id=m.id, role=m.role, content=m.content)
-            for m in conv.messages
+            for m in visible_messages
         ],
     )
 
@@ -384,7 +353,7 @@ async def delete_conversation(conversation_id: str, session: AsyncSession = Depe
 
 @router.get("/schema")
 async def get_schema(session: AsyncSession = Depends(get_db)):
-    ddls = await _get_schema_ddls(session)
+    ddls = await get_schema_ddls(session)
     return {"tables": ddls}
 
 
@@ -416,7 +385,7 @@ async def execute_sql(req: ExecuteRequest, session: AsyncSession = Depends(get_d
 
 @router.get("/plans/{plan_id}/preview", response_model=PreviewResponse)
 async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
-    plan = await _load_plan_with_artifacts(plan_id, session)
+    plan = await load_plan(plan_id, session)
     artifacts = list(plan.artifacts)
 
     if not artifacts:
@@ -438,141 +407,36 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
-    plan = await _load_plan_with_artifacts(req.plan_id, session)
-    artifacts = list(plan.artifacts)
+    result = await process_chat(req.plan_id, req.message, req.conversation_id, session)
+    return _chat_result_to_response(result)
 
-    conversation = await _get_or_create_conversation(
-        req.conversation_id, req.plan_id, session
-    )
 
-    skills_result = await session.execute(select(Skill))
-    skills = list(skills_result.scalars())
-
-    schema_ddls = await _get_schema_ddls(session)
-    system_prompt = build_system_prompt(plan, artifacts, skills, schema_ddls)
-
-    persisted_history = [
-        {"role": m.role, "content": m.content} for m in conversation.messages
-    ]
-
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(persisted_history)
-    messages.append({"role": "user", "content": req.message})
-
-    log.info("Calling LLM for plan=%s", plan.id)
-    llm_response = await call_openai(messages)
-    parsed = parse_llm_response(llm_response)
-    log.info(
-        "LLM returned %d artifact(s): %s",
-        len(parsed.artifacts),
-        [a.name for a in parsed.artifacts],
-    )
-
-    session.add(ConversationMessage(
-        conversation_id=conversation.id, role="user", content=req.message,
-    ))
-    session.add(ConversationMessage(
-        conversation_id=conversation.id, role="assistant", content=parsed.response_text,
-    ))
-
-    if conversation.title is None:
-        conversation.title = req.message[:120]
-
-    await session.commit()
-
-    if parsed.artifacts:
-        old_count = len(plan.artifacts)
-        for old in list(plan.artifacts):
-            await session.delete(old)
-        await session.commit()
-        log.info("Deleted %d old artifact(s) for plan=%s", old_count, plan.id)
-
-        for spec in parsed.artifacts:
-            session.add(SqlArtifact(plan_id=plan.id, name=spec.name, sql_expression=spec.sql))
-        await session.commit()
-        log.info("Created %d artifact(s) for plan=%s", len(parsed.artifacts), plan.id)
-
-    all_result = await session.execute(
-        select(SqlArtifact)
-        .where(SqlArtifact.plan_id == plan.id)
-        .order_by(SqlArtifact.created_at)
-    )
-    all_artifacts = list(all_result.scalars())
-
-    current_artifacts = [_artifact_to_out(a) for a in all_artifacts]
-    log.info(
-        "Plan %s artifacts: %s",
-        plan.id,
-        [(a.id, a.name) for a in all_artifacts],
-    )
-
-    operation_results: list[OperationResultOut] = []
-    for a in all_artifacts:
-        snapshot = OperationResultOut(
-            action="create",
-            artifact_id=a.id,
-            name=a.name,
-            sql_expression=a.sql_expression,
-        )
-        try:
-            exec_result = await execute_artifact(a, all_artifacts, session)
-            snapshot.result = exec_result
-        except Exception as exc:
-            log.error("Execution failed for artifact %s: %s", a.id, exc)
-            snapshot.result = ExecutionResult(columns=[], rows=[], row_count=0, error=str(exc))
-        operation_results.append(snapshot)
-    log.info("Plan %s: %d artifact(s) executed", plan.id, len(operation_results))
-
-    updated_history = persisted_history + [
-        {"role": "user", "content": req.message},
-        {"role": "assistant", "content": parsed.response_text},
-    ]
-
-    composed_sql = None
-    if all_artifacts:
-        from executor import _build_cte_query, _find_final_artifact, _resolve_dependencies
-        named = {a.name: a for a in all_artifacts if a.name}
-        final = _find_final_artifact(all_artifacts)
-        deps = _resolve_dependencies(final, named)
-        composed_sql = _build_cte_query(deps, final.sql_expression)
-
+def _chat_result_to_response(result: ChatResult) -> ChatResponse:
+    current_artifacts = [_artifact_to_out(a) for a in result.artifacts]
     return ChatResponse(
-        response=parsed.response_text,
-        conversation_id=conversation.id,
-        composed_sql=composed_sql,
-        operations=operation_results,
-        current_artifacts=current_artifacts,
-        conversation_history=updated_history,
-    )
-
-
-async def _get_or_create_conversation(
-    conversation_id: str | None,
-    plan_id: str,
-    session: AsyncSession,
-) -> Conversation:
-    if conversation_id:
-        result = await session.execute(
-            select(Conversation)
-            .options(selectinload(Conversation.messages))
-            .where(Conversation.id == conversation_id)
-        )
-        conv = result.scalar_one_or_none()
-        if not conv:
-            raise HTTPException(
-                status_code=404, detail=f"Conversation {conversation_id} not found"
+        response=result.response_text,
+        conversation_id=result.conversation_id,
+        composed_sql=result.composed_sql,
+        tool_calls=[
+            ToolCallOut(
+                tool_name=tc.tool_name,
+                arguments=tc.arguments,
+                success=tc.result.success,
+                result_data=tc.result.data if tc.result.success else None,
+                error=tc.result.error,
             )
-        return conv
-
-    conv = Conversation(plan_id=plan_id)
-    session.add(conv)
-    await session.flush()
-
-    result = await session.execute(
-        select(Conversation)
-        .options(selectinload(Conversation.messages))
-        .where(Conversation.id == conv.id)
+            for tc in result.agent_result.tool_calls
+        ],
+        current_artifacts=current_artifacts,
+        plan=PlanOut(
+            plan_id=result.plan.id,
+            name=result.plan.name,
+            plan_type=result.plan.plan_type,
+            frequency=result.plan.frequency,
+            mode=result.plan.mode,
+            artifacts=current_artifacts,
+        ),
+        iterations=result.agent_result.iterations,
     )
-    return result.scalar_one()
 
 
