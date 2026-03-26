@@ -87,11 +87,11 @@ ai-sql-editor/
 │   ├── executor.py          # CTE dependency resolution + SQL execution engine
 │   ├── seed.py              # Sample data seeding for employees, deals, quotas
 │   ├── pyproject.toml       # Dependencies (managed by uv)
-│   ├── test_supabase.sh     # End-to-end test script
-│   └── docs/
-│       ├── ai-sql-editor-poc.md   # Full POC specification
-│       └── ARCHITECTURE.md        # Implementation plan
+│   └── test_supabase.sh     # End-to-end test script
 ├── client/                  # Frontend (TBD)
+├── docs/
+│   ├── ai-sql-editor-poc.md # Full POC specification
+│   └── ARCHITECTURE.md      # Implementation plan
 ├── Backlog.md
 └── README.md
 ```
