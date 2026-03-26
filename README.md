@@ -1,18 +1,19 @@
 # AI SQL Editor POC
 
-AI-powered SQL commission plan editor that decomposes complex queries into named CTE artifacts, executes them against SQLite, and iterates via natural language chat.
+AI-powered SQL commission plan editor that decomposes complex queries into named CTE artifacts, executes them against PostgreSQL (Supabase), and iterates via natural language chat.
 
 ## Prerequisites
 
 - Python 3.11+
 - [`uv`](https://docs.astral.sh/uv/) package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - An OpenAI API key
+- A Supabase project (or any PostgreSQL database)
 
 ## Setup
 
 ```bash
 git clone https://github.com/kottamakhil/ai-sql-editor.git
-cd ai-sql-editor
+cd ai-sql-editor/backend
 
 uv sync
 
@@ -77,17 +78,20 @@ curl -s http://localhost:8000/api/schema | python -m json.tool
 
 ```
 ai-sql-editor/
-├── main.py              # FastAPI app entry point, lifespan hooks
-├── database.py          # Async SQLAlchemy engine, session factory
-├── models.py            # SQLAlchemy models (plans, sql_artifacts, skills, business tables)
-├── routes.py            # All API endpoint handlers including /chat
-├── llm.py               # LLM prompt builder, response parser, OpenAI client
-├── executor.py          # CTE dependency resolution + SQL execution engine
-├── seed.py              # Sample data seeding for employees, deals, quotas
-├── pyproject.toml       # Dependencies (managed by uv)
-├── docs/
-│   ├── ai-sql-editor-poc.md   # Full POC specification
-│   └── ARCHITECTURE.md        # Implementation plan
+├── backend/
+│   ├── main.py              # FastAPI app entry point, lifespan hooks
+│   ├── database.py          # Async SQLAlchemy engine, session factory
+│   ├── models.py            # SQLAlchemy models (plans, sql_artifacts, skills, business tables)
+│   ├── routes.py            # All API endpoint handlers including /chat
+│   ├── llm.py               # LLM prompt builder, response parser, OpenAI client
+│   ├── executor.py          # CTE dependency resolution + SQL execution engine
+│   ├── seed.py              # Sample data seeding for employees, deals, quotas
+│   ├── pyproject.toml       # Dependencies (managed by uv)
+│   ├── test_supabase.sh     # End-to-end test script
+│   └── docs/
+│       ├── ai-sql-editor-poc.md   # Full POC specification
+│       └── ARCHITECTURE.md        # Implementation plan
+├── client/                  # Frontend (TBD)
 ├── Backlog.md
 └── README.md
 ```
