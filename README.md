@@ -16,12 +16,13 @@ cd ai-sql-editor
 
 uv sync
 
+export DATABASE_URL="postgresql+asyncpg://postgres:YOUR-PASSWORD@db.YOUR-PROJECT.supabase.co:5432/postgres"
 export OPENAI_API_KEY="sk-..."
 
 uv run uvicorn main:app --reload --port 8000
 ```
 
-The server creates a SQLite database (`poc.db`) and seeds sample data on first run.
+The server creates tables and seeds sample data on first run.
 
 ## Quick test
 
@@ -117,5 +118,5 @@ ai-sql-editor/
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | Yes | OpenAI API key for gpt-4o |
-| `DATABASE_URL` | No | SQLite path (defaults to `sqlite+aiosqlite:///./poc.db`) |
+| `DATABASE_URL` | Yes | PostgreSQL connection string, e.g. `postgresql+asyncpg://user:pass@host:5432/db` |
 | `OPENAI_MODEL` | No | Model name (defaults to `gpt-4o`) |

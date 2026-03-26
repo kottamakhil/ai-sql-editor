@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import bindparam, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -136,11 +136,27 @@ async def _load_plan_with_artifacts(plan_id: str, session: AsyncSession) -> Plan
 
 
 async def _get_schema_ddls(session: AsyncSession) -> list[str]:
+    placeholders = ", ".join(f":t{i}" for i in range(len(BUSINESS_TABLES)))
+    params = {f"t{i}": name for i, name in enumerate(BUSINESS_TABLES)}
     stmt = text(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name IN :names"
-    ).bindparams(bindparam("names", expanding=True))
-    result = await session.execute(stmt, {"names": list(BUSINESS_TABLES)})
-    return [row[0] for row in result.fetchall() if row[0]]
+        "SELECT table_name, column_name, data_type, is_nullable "
+        "FROM information_schema.columns "
+        f"WHERE table_schema = 'public' AND table_name IN ({placeholders}) "
+        "ORDER BY table_name, ordinal_position"
+    )
+    result = await session.execute(stmt, params)
+    rows = result.fetchall()
+
+    tables: dict[str, list[str]] = {}
+    for table_name, col_name, data_type, nullable in rows:
+        tables.setdefault(table_name, [])
+        null_str = "" if nullable == "YES" else " NOT NULL"
+        tables[table_name].append(f"  {col_name} {data_type.upper()}{null_str}")
+
+    return [
+        f"CREATE TABLE {name} (\n" + ",\n".join(cols) + "\n)"
+        for name, cols in tables.items()
+    ]
 
 
 def _artifact_to_out(a: SqlArtifact) -> ArtifactOut:
@@ -471,8 +487,13 @@ async def _get_or_create_conversation(
     conv = Conversation(plan_id=plan_id)
     session.add(conv)
     await session.flush()
-    conv.messages = []
-    return conv
+
+    result = await session.execute(
+        select(Conversation)
+        .options(selectinload(Conversation.messages))
+        .where(Conversation.id == conv.id)
+    )
+    return result.scalar_one()
 
 
 async def _process_operation(

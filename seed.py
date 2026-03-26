@@ -67,6 +67,7 @@ async def seed_data(session: AsyncSession) -> None:
         return
 
     session.add_all(EMPLOYEES)
+    await session.flush()
     session.add_all(DEALS)
     session.add_all(QUOTAS)
     await session.commit()

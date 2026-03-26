@@ -3,9 +3,9 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./poc.db")
+DATABASE_URL = os.environ["DATABASE_URL"]
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args={"ssl": "require"})
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 

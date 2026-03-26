@@ -26,3 +26,4 @@
 | # | Feature | Status |
 |---|---------|--------|
 | F-1 | Persist chat history — `Conversation` + `ConversationMessage` models, CRUD routes, `/chat` auto-saves messages and supports `conversation_id` for multi-turn | DONE |
+| F-2 | Supabase (PostgreSQL) support — added `asyncpg` driver, SSL connect args, dual-mode schema introspection. Switch via `DATABASE_URL` env var; SQLite remains the default | DONE |
