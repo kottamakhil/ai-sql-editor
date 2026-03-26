@@ -450,8 +450,14 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
 
     await session.commit()
 
+    if parsed.operations:
+        for old in list(plan.artifacts):
+            await session.delete(old)
+        await session.commit()
+
+    create_ops = [op for op in parsed.operations if op.action == "create"]
     operation_results: list[OperationResultOut] = []
-    for op in parsed.operations:
+    for op in create_ops:
         try:
             op_result = await _process_operation(op, plan, session)
             operation_results.append(op_result)

@@ -81,14 +81,14 @@ When the user asks you to build or modify commission SQL:
 2. Return SQL operations in a JSON block tagged as ```json:sql_operations.
 3. Each operation must be one of:
    - {{"action": "create", "name": "cte_name", "sql": "SELECT ..."}} — new named CTE artifact
-   - {{"action": "create", "sql": "SELECT ..."}} — new standalone/final query (no name)
+   - {{"action": "create", "name": "payout", "sql": "SELECT ..."}} — the final query that assembles results (always named "payout")
    - {{"action": "update", "artifact_id": "art_1", "sql": "SELECT ..."}} — replace SQL on existing artifact
    - {{"action": "delete", "artifact_id": "art_2"}} — remove an artifact
 
 4. Prefer decomposing complex queries into named CTE artifacts:
    - Each CTE should have a descriptive name (e.g. "base_deals", "commissions", "quota_attainment")
    - Named artifacts can reference other named artifacts by name as if they were tables
-   - The final artifact (name=null) assembles the result from the named CTEs
+   - The final artifact must always be named "payout" — it assembles the result from the named CTEs
    - Each CTE should be independently understandable
 
 5. Always reference artifact_id from <current_sql_artifacts> when updating or deleting.

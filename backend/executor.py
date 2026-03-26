@@ -40,9 +40,9 @@ async def execute_plan_preview(artifacts: list[SqlArtifact], session: AsyncSessi
 
 
 def _find_final_artifact(artifacts: list[SqlArtifact]) -> SqlArtifact:
-    unnamed = [a for a in artifacts if not a.name]
-    if unnamed:
-        return unnamed[-1]
+    payout = [a for a in artifacts if a.name == "payout"]
+    if payout:
+        return payout[-1]
     return artifacts[-1]
 
 
