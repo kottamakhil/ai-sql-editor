@@ -126,6 +126,14 @@ export const useChat = () =>
 export const useSkills = () =>
   useQuery({ queryKey: ['skills'], queryFn: fetchSkills });
 
+export const useCreateSkill = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createSkill,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['skills'] }),
+  });
+};
+
 export const useSchema = () =>
   useQuery({ queryKey: ['schema'], queryFn: fetchSchema });
 
