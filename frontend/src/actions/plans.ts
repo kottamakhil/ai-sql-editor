@@ -32,6 +32,9 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ---- Plans ----
 
+export const fetchPlans = () =>
+  http<Plan[]>('/plans');
+
 export const fetchPlan = (planId: string) =>
   http<Plan>(`/plans/${planId}`);
 
@@ -90,6 +93,9 @@ export const deleteConversation = (conversationId: string) =>
   http<void>(`/conversations/${conversationId}`, { method: 'DELETE' });
 
 // ---- React Query hooks ----
+
+export const usePlans = () =>
+  useQuery({ queryKey: ['plans'], queryFn: fetchPlans });
 
 export const usePlan = (planId: string) =>
   useQuery({ queryKey: ['plan', planId], queryFn: () => fetchPlan(planId), enabled: !!planId });

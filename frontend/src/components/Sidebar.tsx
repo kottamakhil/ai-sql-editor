@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { MOCK_RECENT_PLANS, MOCK_NAV_BADGES } from '../mockservice';
+import { MOCK_NAV_BADGES } from '../mockservice';
 import { useAppContext } from '../contexts/AppContext';
+import { usePlans } from '../actions/plans';
 import { NewPlanModal } from './NewPlanModal';
 
 const SidebarContainer = styled.aside<{ $open: boolean }>`
@@ -281,6 +283,8 @@ const WorkspacesIcon = () => (
 export function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useAppContext();
   const [showNewPlan, setShowNewPlan] = useState(false);
+  const navigate = useNavigate();
+  const { data: plans } = usePlans();
 
   return (
     <>
@@ -328,9 +332,19 @@ export function Sidebar() {
 
           <SectionTitle>Recent plans</SectionTitle>
           <PlansList>
-            {MOCK_RECENT_PLANS.map((plan) => (
-              <PlanItem key={plan.plan_id}>{plan.name}</PlanItem>
+            {(plans ?? []).map((plan) => (
+              <PlanItem
+                key={plan.plan_id}
+                onClick={() => navigate(`/variable-compensation/plans/${plan.plan_id}`)}
+              >
+                {plan.name}
+              </PlanItem>
             ))}
+            {plans?.length === 0 && (
+              <PlanItem as="div" style={{ color: '#9ca3af', cursor: 'default' }}>
+                No plans yet
+              </PlanItem>
+            )}
           </PlansList>
 
           <SidebarFooter>
