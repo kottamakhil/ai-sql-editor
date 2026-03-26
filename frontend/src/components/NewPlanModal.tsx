@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useCreatePlan } from '../actions/plans';
@@ -69,22 +69,147 @@ const Input = styled.input`
   }
 `;
 
-const Select = styled.select`
+/* ---- Custom Dropdown ---- */
+
+const DropdownWrapper = styled.div`
+  position: relative;
+`;
+
+const DropdownTrigger = styled.button<{ $open: boolean }>`
+  width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid ${(p) => (p.$open ? '#5b1647' : '#d1d5db')};
   border-radius: 8px;
   font-size: 14px;
   color: #1a1a2e;
-  outline: none;
   background: #fff;
   font-family: inherit;
   cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  outline: none;
+  box-shadow: ${(p) => (p.$open ? '0 0 0 3px rgba(91, 22, 71, 0.1)' : 'none')};
 
   &:focus {
     border-color: #5b1647;
     box-shadow: 0 0 0 3px rgba(91, 22, 71, 0.1);
   }
+
+  svg {
+    width: 16px;
+    height: 16px;
+    color: #6b7280;
+    transition: transform 0.15s ease;
+    transform: ${(p) => (p.$open ? 'rotate(180deg)' : 'rotate(0)')};
+  }
 `;
+
+const DropdownMenu = styled.div`
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  padding: 4px;
+  overflow: hidden;
+`;
+
+const DropdownOption = styled.button<{ $selected: boolean }>`
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 6px;
+  background: ${(p) => (p.$selected ? '#f3f0f5' : 'transparent')};
+  color: ${(p) => (p.$selected ? '#5b1647' : '#1a1a2e')};
+  font-size: 14px;
+  font-weight: ${(p) => (p.$selected ? '500' : '400')};
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &:hover {
+    background: ${(p) => (p.$selected ? '#ebe5ee' : '#f9fafb')};
+  }
+`;
+
+const CheckIcon = styled.span<{ $visible: boolean }>`
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  visibility: ${(p) => (p.$visible ? 'visible' : 'hidden')};
+  color: #5b1647;
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+`;
+
+interface DropdownProps {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}
+
+function Dropdown({ value, options, onChange }: DropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? value;
+
+  return (
+    <DropdownWrapper ref={ref}>
+      <DropdownTrigger type="button" $open={open} onClick={() => setOpen(!open)}>
+        {selectedLabel}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </DropdownTrigger>
+      {open && (
+        <DropdownMenu>
+          {options.map((opt) => (
+            <DropdownOption
+              key={opt.value}
+              type="button"
+              $selected={opt.value === value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+            >
+              <CheckIcon $visible={opt.value === value}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </CheckIcon>
+              {opt.label}
+            </DropdownOption>
+          ))}
+        </DropdownMenu>
+      )}
+    </DropdownWrapper>
+  );
+}
+
+/* ---- Modal buttons ---- */
 
 const ButtonRow = styled.div`
   display: flex;
@@ -131,6 +256,21 @@ const ErrorText = styled.p`
   margin: -12px 0 0;
 `;
 
+/* ---- Options ---- */
+
+const PLAN_TYPE_OPTIONS = [
+  { value: 'RECURRING', label: 'Recurring' },
+  { value: 'ONE_TIME', label: 'One-time' },
+];
+
+const FREQUENCY_OPTIONS = [
+  { value: 'MONTHLY', label: 'Monthly' },
+  { value: 'QUARTERLY', label: 'Quarterly' },
+  { value: 'ANNUALLY', label: 'Annually' },
+];
+
+/* ---- Component ---- */
+
 interface NewPlanModalProps {
   onClose: () => void;
 }
@@ -171,9 +311,8 @@ export function NewPlanModal({ onClose }: NewPlanModalProps) {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <Field>
-            <Label htmlFor="plan-name">Plan name</Label>
+            <Label>Plan name</Label>
             <Input
-              id="plan-name"
               type="text"
               placeholder="e.g. Q1 Sales Commission"
               value={name}
@@ -183,20 +322,13 @@ export function NewPlanModal({ onClose }: NewPlanModalProps) {
           </Field>
 
           <Field>
-            <Label htmlFor="plan-type">Plan type</Label>
-            <Select id="plan-type" value={planType} onChange={(e) => setPlanType(e.target.value)}>
-              <option value="RECURRING">Recurring</option>
-              <option value="ONE_TIME">One-time</option>
-            </Select>
+            <Label>Plan type</Label>
+            <Dropdown value={planType} options={PLAN_TYPE_OPTIONS} onChange={setPlanType} />
           </Field>
 
           <Field>
-            <Label htmlFor="frequency">Frequency</Label>
-            <Select id="frequency" value={frequency} onChange={(e) => setFrequency(e.target.value)}>
-              <option value="MONTHLY">Monthly</option>
-              <option value="QUARTERLY">Quarterly</option>
-              <option value="ANNUALLY">Annually</option>
-            </Select>
+            <Label>Frequency</Label>
+            <Dropdown value={frequency} options={FREQUENCY_OPTIONS} onChange={setFrequency} />
           </Field>
 
           {createPlan.isError && (
