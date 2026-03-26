@@ -29,7 +29,7 @@ The server creates tables and seeds sample data on first run.
 
 ```bash
 # Run the full end-to-end test suite (11 tests)
-cd backend && ./test_end_to_end.sh
+cd backend && ./test_e2e.sh
 ```
 
 Or test individual endpoints:
@@ -94,7 +94,7 @@ ai-sql-editor/
 │   ├── executor.py          # CTE dependency resolution + SQL execution engine
 │   ├── seed.py              # Sample data seeding for employees, deals, quotas
 │   ├── pyproject.toml       # Dependencies (managed by uv)
-│   └── test_end_to_end.sh   # End-to-end test script
+│   └── test_e2e.sh          # End-to-end test script (14 tests)
 ├── frontend/                # React + TypeScript (Vite)
 ├── docs/
 │   ├── ai-sql-editor-poc.md # Full POC specification

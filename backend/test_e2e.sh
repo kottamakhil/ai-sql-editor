@@ -30,22 +30,56 @@ check_json() {
     fi
 }
 
-# ── 1. Health check ──
+# ============================================================
+# Infrastructure
+# ============================================================
+
 step "1. Health check"
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/ping")
 [ "$STATUS" = "200" ] && pass "Server is up" || fail "Server not reachable (got $STATUS)"
 
-# ── 2. Create a plan ──
-step "2. Create plan"
+step "2. Schema introspection"
+SCHEMA=$(curl -s "$BASE/api/schema")
+check_json "$SCHEMA" "Schema"
+TABLE_COUNT=$(echo "$SCHEMA" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['tables']))")
+[ "$TABLE_COUNT" -ge 3 ] && pass "Got $TABLE_COUNT table DDLs" || fail "Expected >=3 tables, got $TABLE_COUNT"
+
+step "3. Seed data"
+EXEC_RESP=$(curl -s -X POST "$BASE/api/execute" \
+  -H "Content-Type: application/json" \
+  -d '{"sql_expression": "SELECT COUNT(*) AS cnt FROM employees"}')
+EMP_COUNT=$(echo "$EXEC_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['rows'][0][0])")
+[ "$EMP_COUNT" -ge 1 ] && pass "employees: $EMP_COUNT rows" || fail "employees table is empty"
+
+DEAL_RESP=$(curl -s -X POST "$BASE/api/execute" \
+  -H "Content-Type: application/json" \
+  -d '{"sql_expression": "SELECT COUNT(*) AS cnt FROM deals"}')
+DEAL_COUNT=$(echo "$DEAL_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['rows'][0][0])")
+[ "$DEAL_COUNT" -ge 1 ] && pass "deals: $DEAL_COUNT rows" || fail "deals table is empty"
+
+# ============================================================
+# Plan CRUD
+# ============================================================
+
+step "4. Create plan"
 PLAN_RESP=$(curl -s -X POST "$BASE/api/plans" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Agent Test Plan", "plan_type": "RECURRING", "frequency": "QUARTERLY"}')
+  -d '{"name": "E2E Test Plan", "plan_type": "RECURRING", "frequency": "QUARTERLY"}')
 check_json "$PLAN_RESP" "Create plan"
 PLAN_ID=$(echo "$PLAN_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['plan_id'])")
 pass "Created plan $PLAN_ID"
 
-# ── 3. Chat: build commission (tests update_sql_artifacts tool) ──
-step "3. Chat: build commission structure"
+step "5. Get plan"
+GET_PLAN_RESP=$(curl -s "$BASE/api/plans/$PLAN_ID")
+check_json "$GET_PLAN_RESP" "Get plan"
+GOT_NAME=$(echo "$GET_PLAN_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+[ "$GOT_NAME" = "E2E Test Plan" ] && pass "Plan name matches" || fail "Expected 'E2E Test Plan', got '$GOT_NAME'"
+
+# ============================================================
+# Chat turn 1: build commission (update_sql_artifacts tool)
+# ============================================================
+
+step "6. Chat: build commission structure"
 debug "Sending: Build a 10% commission on all closed-won deals over 50000"
 CHAT1_RESP=$(curl -s -X POST "$BASE/api/chat" \
   -H "Content-Type: application/json" \
@@ -64,31 +98,44 @@ pass "$ART_COUNT artifact(s), $TC_COUNT tool call(s), $ITERATIONS iteration(s)"
 debug "Tool calls:"
 echo "$CHAT1_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-for tc in d['tool_calls']:
+for tc in json.load(sys.stdin)['tool_calls']:
     print(f\"  {tc['tool_name']}: success={tc['success']} error={tc.get('error','none')}\")
 "
 
 debug "Artifacts:"
 echo "$CHAT1_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-for a in d['current_artifacts']:
+for a in json.load(sys.stdin)['current_artifacts']:
     print(f\"  {a['name']}: {a['sql_expression'][:80]}...\")
 "
 
 COMPOSED=$(echo "$CHAT1_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('composed_sql') or 'NONE')")
-debug "Composed SQL present: $([ "$COMPOSED" != "NONE" ] && echo 'yes' || echo 'no')"
+[ "$COMPOSED" != "NONE" ] && pass "Composed SQL present" || debug "No composed SQL (no artifacts)"
 
 HAS_UPDATE_ARTIFACTS=$(echo "$CHAT1_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-print(any(tc['tool_name'] == 'update_sql_artifacts' for tc in d['tool_calls']))
+print(any(tc['tool_name'] == 'update_sql_artifacts' for tc in json.load(sys.stdin)['tool_calls']))
 ")
 [ "$HAS_UPDATE_ARTIFACTS" = "True" ] && pass "LLM called update_sql_artifacts" || fail "LLM did not call update_sql_artifacts"
 
-# ── 4. Chat: update plan name (tests update_plan tool) ──
-step "4. Chat: rename plan"
+# ============================================================
+# Execute single artifact
+# ============================================================
+
+step "7. Execute single artifact"
+FIRST_ART_ID=$(echo "$CHAT1_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['current_artifacts'][0]['artifact_id'])")
+EXEC_ART_RESP=$(curl -s -X POST "$BASE/api/execute" \
+  -H "Content-Type: application/json" \
+  -d "{\"artifact_id\": \"$FIRST_ART_ID\"}")
+check_json "$EXEC_ART_RESP" "Execute artifact"
+EXEC_ERROR=$(echo "$EXEC_ART_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error') or '')")
+[ -z "$EXEC_ERROR" ] && pass "Artifact $FIRST_ART_ID executed" || fail "Execution error: $EXEC_ERROR"
+
+# ============================================================
+# Chat turn 2: rename plan (update_plan tool)
+# ============================================================
+
+step "8. Chat: rename plan"
 debug "Sending: Rename this plan to Q2 Sales Commissions"
 CHAT2_RESP=$(curl -s -X POST "$BASE/api/chat" \
   -H "Content-Type: application/json" \
@@ -104,20 +151,21 @@ debug "Plan name in response: $NEW_NAME"
 
 HAS_UPDATE_PLAN=$(echo "$CHAT2_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-print(any(tc['tool_name'] == 'update_plan' for tc in d['tool_calls']))
+print(any(tc['tool_name'] == 'update_plan' for tc in json.load(sys.stdin)['tool_calls']))
 ")
 [ "$HAS_UPDATE_PLAN" = "True" ] && pass "LLM called update_plan" || fail "LLM did not call update_plan"
 
-# Verify plan name persisted in DB
 PLAN_CHECK=$(curl -s "$BASE/api/plans/$PLAN_ID")
 DB_NAME=$(echo "$PLAN_CHECK" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
 debug "Plan name in DB: $DB_NAME"
-echo "$DB_NAME" | grep -qi "Q2" && pass "Plan name updated in DB" || fail "Plan name not updated: $DB_NAME"
+echo "$DB_NAME" | grep -qi "Q2" && pass "Plan name persisted" || fail "Plan name not updated: $DB_NAME"
 
-# ── 5. Chat: data exploration (tests execute_query tool) ──
-step "5. Chat: data exploration"
-debug "Sending: How many closed-won deals are there?"
+# ============================================================
+# Chat turn 3: data exploration (execute_query tool)
+# ============================================================
+
+step "9. Chat: data exploration"
+debug "Sending: How many closed-won deals are there? Run a query to find out."
 CHAT3_RESP=$(curl -s -X POST "$BASE/api/chat" \
   -H "Content-Type: application/json" \
   -d "{
@@ -129,23 +177,24 @@ check_json "$CHAT3_RESP" "Chat turn 3"
 
 HAS_EXECUTE_QUERY=$(echo "$CHAT3_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-print(any(tc['tool_name'] == 'execute_query' for tc in d['tool_calls']))
+print(any(tc['tool_name'] == 'execute_query' for tc in json.load(sys.stdin)['tool_calls']))
 ")
 [ "$HAS_EXECUTE_QUERY" = "True" ] && pass "LLM called execute_query" || debug "LLM answered without execute_query (acceptable)"
 
 debug "Tool calls:"
 echo "$CHAT3_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-for tc in d['tool_calls']:
+for tc in json.load(sys.stdin)['tool_calls']:
     print(f\"  {tc['tool_name']}: success={tc['success']}\")
     if tc.get('result_data') and 'rows' in tc['result_data']:
         print(f\"    rows={tc['result_data']['rows'][:3]}\")
 "
 
-# ── 6. Chat: modify commission (tests multi-turn artifact replacement) ──
-step "6. Chat: modify commission structure"
+# ============================================================
+# Chat turn 4: modify commission (multi-turn replacement)
+# ============================================================
+
+step "10. Chat: modify commission"
 debug "Sending: Change to 15% and remove the 50k threshold"
 CHAT4_RESP=$(curl -s -X POST "$BASE/api/chat" \
   -H "Content-Type: application/json" \
@@ -162,13 +211,15 @@ pass "After modification: $ART_COUNT4 artifact(s)"
 debug "Artifacts:"
 echo "$CHAT4_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-for a in d['current_artifacts']:
+for a in json.load(sys.stdin)['current_artifacts']:
     print(f\"  {a['name']}: {a['sql_expression'][:80]}...\")
 "
 
-# ── 7. Chat: rename + modify in one message (tests parallel tool calls) ──
-step "7. Chat: rename + modify in one message"
+# ============================================================
+# Chat turn 5: rename + modify in one message (parallel tools)
+# ============================================================
+
+step "11. Chat: rename + modify in one message"
 debug "Sending: Rename to Q3 Plan and add a 2x accelerator for deals over 100k"
 CHAT5_RESP=$(curl -s -X POST "$BASE/api/chat" \
   -H "Content-Type: application/json" \
@@ -181,8 +232,7 @@ check_json "$CHAT5_RESP" "Chat turn 5"
 
 TC_NAMES=$(echo "$CHAT5_RESP" | python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-names = sorted(set(tc['tool_name'] for tc in d['tool_calls']))
+names = sorted(set(tc['tool_name'] for tc in json.load(sys.stdin)['tool_calls']))
 print(' '.join(names))
 ")
 debug "Tools called: $TC_NAMES"
@@ -190,15 +240,17 @@ debug "Tools called: $TC_NAMES"
 FINAL_NAME=$(echo "$CHAT5_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['plan']['name'])")
 debug "Final plan name: $FINAL_NAME"
 
-# ── 8. Conversation history preserved ──
-step "8. Conversation history"
+# ============================================================
+# Conversation + Preview
+# ============================================================
+
+step "12. Conversation history"
 CONV_RESP=$(curl -s "$BASE/api/conversations/$CONV_ID")
 check_json "$CONV_RESP" "Conversation"
 MSG_COUNT=$(echo "$CONV_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['messages']))")
-pass "Conversation has $MSG_COUNT messages (includes tool call history)"
+[ "$MSG_COUNT" -ge 10 ] && pass "Conversation has $MSG_COUNT messages (5 turns)" || fail "Expected >=10 messages, got $MSG_COUNT"
 
-# ── 9. Plan preview still works ──
-step "9. Plan preview"
+step "13. Plan preview"
 PREVIEW_RESP=$(curl -s "$BASE/api/plans/$PLAN_ID/preview")
 check_json "$PREVIEW_RESP" "Preview"
 PREVIEW_ERR=$(echo "$PREVIEW_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['result'].get('error') or '')")
@@ -209,4 +261,12 @@ else
     pass "Preview returned $ROW_COUNT rows"
 fi
 
-echo -e "\n${GREEN}${BOLD}All agent tests passed.${RESET}"
+step "14. List conversations"
+LIST_RESP=$(curl -s "$BASE/api/plans/$PLAN_ID/conversations")
+check_json "$LIST_RESP" "List conversations"
+CONV_COUNT=$(echo "$LIST_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+[ "$CONV_COUNT" -ge 1 ] && pass "Plan has $CONV_COUNT conversation(s)" || fail "No conversations found"
+
+# ============================================================
+
+echo -e "\n${GREEN}${BOLD}All 14 tests passed.${RESET}"
