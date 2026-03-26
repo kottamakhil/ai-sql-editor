@@ -98,6 +98,7 @@ class MessageOut(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str
+    composed_sql: str | None = None
     operations: list[OperationResultOut]
     current_artifacts: list[ArtifactOut]
     conversation_history: list[dict]
@@ -504,9 +505,18 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
         {"role": "assistant", "content": parsed.response_text},
     ]
 
+    composed_sql = None
+    if all_artifacts:
+        from executor import _build_cte_query, _find_final_artifact, _resolve_dependencies
+        named = {a.name: a for a in all_artifacts if a.name}
+        final = _find_final_artifact(all_artifacts)
+        deps = _resolve_dependencies(final, named)
+        composed_sql = _build_cte_query(deps, final.sql_expression)
+
     return ChatResponse(
         response=parsed.response_text,
         conversation_id=conversation.id,
+        composed_sql=composed_sql,
         operations=operation_results,
         current_artifacts=current_artifacts,
         conversation_history=updated_history,
