@@ -171,10 +171,6 @@ export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
 
   const hasChanges = editedSql !== artifact.sql_expression;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(editedSql);
-  };
-
   const handleSave = () => {
     if (!hasChanges || updateMutation.isPending) return;
     updateMutation.mutate({

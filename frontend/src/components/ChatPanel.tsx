@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import styled from 'styled-components';
+import Markdown from 'react-markdown';
 import { useChat, useConversations, useConversation } from '../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -28,12 +29,33 @@ const MessageBubble = styled.div<{ $role: string }>`
   border-radius: 12px;
   font-size: 13px;
   line-height: 1.5;
-  white-space: pre-wrap;
   word-break: break-word;
   align-self: ${(p) => (p.$role === 'user' ? 'flex-end' : 'flex-start')};
   background: ${(p) => (p.$role === 'user' ? '#5b1647' : '#fff')};
   color: ${(p) => (p.$role === 'user' ? '#fff' : '#1a1a2e')};
   border: ${(p) => (p.$role === 'user' ? 'none' : '1px solid #e5e7eb')};
+  white-space: ${(p) => (p.$role === 'user' ? 'pre-wrap' : 'normal')};
+
+  p { margin: 0 0 8px; &:last-child { margin-bottom: 0; } }
+  ul, ol { margin: 4px 0 8px; padding-left: 20px; }
+  li { margin: 2px 0; }
+  strong { font-weight: 600; }
+  code {
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: ${(p) => (p.$role === 'user' ? 'rgba(255,255,255,0.15)' : '#f3f4f6')};
+  }
+  pre {
+    margin: 8px 0;
+    padding: 10px;
+    border-radius: 6px;
+    background: ${(p) => (p.$role === 'user' ? 'rgba(255,255,255,0.1)' : '#1e1e2e')};
+    color: ${(p) => (p.$role === 'user' ? '#fff' : '#cdd6f4')};
+    overflow-x: auto;
+    code { padding: 0; background: none; }
+  }
 `;
 
 const InputArea = styled.div`
@@ -226,7 +248,11 @@ export function ChatPanel({ planId }: ChatPanelProps) {
         <MessagesArea>
           {messages.map((msg, i) => (
             <MessageBubble key={i} $role={msg.role}>
-              {msg.content}
+              {msg.role === 'assistant' ? (
+                <Markdown>{msg.content}</Markdown>
+              ) : (
+                msg.content
+              )}
             </MessageBubble>
           ))}
           {isThinking && (
