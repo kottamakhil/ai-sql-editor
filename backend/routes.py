@@ -435,8 +435,14 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
     messages.extend(persisted_history)
     messages.append({"role": "user", "content": req.message})
 
+    log.info("Calling LLM for plan=%s", plan.id)
     llm_response = await call_openai(messages)
     parsed = parse_sql_operations(llm_response)
+    log.info(
+        "LLM returned %d operation(s): %s",
+        len(parsed.operations),
+        [op.action for op in parsed.operations],
+    )
 
     session.add(ConversationMessage(
         conversation_id=conversation.id, role="user", content=req.message,
@@ -451,21 +457,27 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
     await session.commit()
 
     if parsed.operations:
+        old_count = len(plan.artifacts)
         for old in list(plan.artifacts):
             await session.delete(old)
         await session.commit()
+        log.info("Deleted %d old artifact(s) for plan=%s", old_count, plan.id)
 
-    create_ops = [op for op in parsed.operations if op.action == "create"]
+    ops_with_sql = [op for op in parsed.operations if op.sql]
+    log.info("Processing %d artifact(s) to create", len(ops_with_sql))
     operation_results: list[OperationResultOut] = []
-    for op in create_ops:
+    for op in ops_with_sql:
         try:
+            op.action = "create"
+            op.artifact_id = None
             op_result = await _process_operation(op, plan, session)
             operation_results.append(op_result)
+            log.info("Created artifact name=%s id=%s", op_result.name, op_result.artifact_id)
         except Exception as exc:
-            log.warning("Operation failed", extra={"action": op.action, "error": str(exc)})
+            log.warning("Operation failed: %s", str(exc))
             operation_results.append(OperationResultOut(
-                action=op.action,
-                artifact_id=op.artifact_id,
+                action="create",
+                artifact_id=None,
                 result=ExecutionResult(columns=[], rows=[], row_count=0, error=str(exc)),
             ))
 
@@ -475,6 +487,7 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
         .order_by(SqlArtifact.created_at)
     )
     current_artifacts = [_artifact_to_out(a) for a in refreshed.scalars()]
+    log.info("Plan %s now has %d artifact(s)", plan.id, len(current_artifacts))
 
     updated_history = persisted_history + [
         {"role": "user", "content": req.message},
