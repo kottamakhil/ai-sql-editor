@@ -1,0 +1,21 @@
+[project]
+name = "ai-sql-editor-poc"
+version = "0.1.0"
+description = "AI-powered SQL commission plan editor POC"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.21",
+    "openai>=1.60",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
