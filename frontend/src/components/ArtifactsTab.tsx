@@ -1,6 +1,6 @@
 import styled from 'styled-components';
 import type { Artifact } from '../types';
-import { ArtifactCard } from './ArtifactCard';
+import { ArtifactCard } from './ArtifactCard/ArtifactCard';
 
 const Container = styled.div`
   padding: 24px;
