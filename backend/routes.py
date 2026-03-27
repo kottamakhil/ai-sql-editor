@@ -161,7 +161,6 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: str
     composed_sql: str | None = None
-    lineage: LineageDAG | None = None
     tool_calls: list[ToolCallOut]
     current_artifacts: list[ArtifactOut]
     plan: PlanOut | None = None
@@ -196,7 +195,6 @@ class ConversationSummaryOut(BaseModel):
 class PreviewResponse(BaseModel):
     composed_sql: str
     result: ExecutionResult
-    lineage: LineageDAG | None = None
 
 
 # --- Helpers ---
@@ -615,12 +613,21 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
     composed_sql = _build_cte_query(deps, final.sql_expression)
 
     exec_result = await execute_plan_preview(artifacts, session)
-    lineage_dag = build_lineage_dag(artifacts)
-    lineage = LineageDAG(
-        nodes=[LineageNode(**n) for n in lineage_dag["nodes"]],
-        edges=[LineageEdge(**e) for e in lineage_dag["edges"]],
+    return PreviewResponse(composed_sql=composed_sql, result=exec_result)
+
+
+@router.get("/plans/{plan_id}/lineage", response_model=LineageDAG)
+async def get_plan_lineage(plan_id: str, session: AsyncSession = Depends(get_db)):
+    """Return the artifact dependency DAG for visualization."""
+    plan = await load_plan(plan_id, session)
+    artifacts = list(plan.artifacts)
+    if not artifacts:
+        return LineageDAG(nodes=[], edges=[])
+    dag = build_lineage_dag(artifacts)
+    return LineageDAG(
+        nodes=[LineageNode(**n) for n in dag["nodes"]],
+        edges=[LineageEdge(**e) for e in dag["edges"]],
     )
-    return PreviewResponse(composed_sql=composed_sql, result=exec_result, lineage=lineage)
 
 
 # --- File Upload ---
@@ -710,13 +717,10 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
             conversation_id=result.conversation_id,
         )
 
-    lineage = _build_lineage_from_dicts(result.artifacts)
-
     return ChatResponse(
         response=result.response_text,
         conversation_id=result.conversation_id,
         composed_sql=result.composed_sql,
-        lineage=lineage,
         tool_calls=[
             ToolCallOut(
                 tool_name=tc.tool_name,
