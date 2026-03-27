@@ -46,6 +46,24 @@ class Quota(Base):
     attainment_pct: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+def _default_plan_config() -> dict:
+    """Default PlanConfig matching the production VCPlanConfig structure."""
+    return {
+        "payout": {
+            "is_automatic_payout_enabled": False,
+            "final_payment_offset": None,
+            "is_draws_enabled": False,
+            "draw_frequency": None,
+        },
+        "payroll": {
+            "payout_type": None,
+        },
+        "disputes": {
+            "is_disputes_enabled": True,
+        },
+    }
+
+
 class Plan(Base):
     __tablename__ = "plans"
 
@@ -54,6 +72,7 @@ class Plan(Base):
     plan_type: Mapped[str] = mapped_column(String(20), nullable=False, default="RECURRING")
     frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="QUARTERLY")
     mode: Mapped[str] = mapped_column(String(20), nullable=False, default="AI_ASSISTED")
+    config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -61,6 +80,19 @@ class Plan(Base):
     artifacts: Mapped[list["SqlArtifact"]] = relationship(
         back_populates="plan", cascade="all, delete-orphan", order_by="SqlArtifact.created_at"
     )
+
+    @property
+    def config(self) -> dict:
+        """Deserialize config_json, falling back to defaults."""
+        import json as _json
+        if self.config_json:
+            return _json.loads(self.config_json)
+        return _default_plan_config()
+
+    @config.setter
+    def config(self, value: dict) -> None:
+        import json as _json
+        self.config_json = _json.dumps(value)
 
 
 class SqlArtifact(Base):

@@ -50,3 +50,8 @@ class PlanServiceBase(ABC):
     async def validate_sql(self, sql: str) -> dict:
         """Validate SQL without returning data. Returns {valid: bool, error: str|None}."""
         ...
+
+    @abstractmethod
+    async def update_plan_config(self, config_patch: dict) -> dict:
+        """Merge a partial config patch into the current plan's config. Returns the full updated config."""
+        ...

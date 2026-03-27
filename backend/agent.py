@@ -54,8 +54,21 @@ def build_system_prompt(
 
     if plan:
         plan_block = f"Name: {plan['name']}\nType: {plan['plan_type']}\nFrequency: {plan['frequency']}"
+        cfg = plan.get("config", {})
+        payout = cfg.get("payout", {})
+        payroll = cfg.get("payroll", {})
+        disputes = cfg.get("disputes", {})
+        config_block = (
+            f"Payout: automatic={payout.get('is_automatic_payout_enabled', False)}, "
+            f"offset={payout.get('final_payment_offset')}, "
+            f"draws={payout.get('is_draws_enabled', False)}, "
+            f"draw_frequency={payout.get('draw_frequency')}\n"
+            f"Payroll: payout_type={payroll.get('payout_type')}\n"
+            f"Disputes: enabled={disputes.get('is_disputes_enabled', True)}"
+        )
     else:
         plan_block = "No plan exists yet."
+        config_block = "N/A"
 
     artifacts_block = ""
     if artifacts:
@@ -64,7 +77,7 @@ def build_system_prompt(
 
     return f"""You are an AI SQL assistant for building commission plans.
 
-You have tools available to create plans, modify plan metadata, update SQL artifacts,
+You have tools available to create plans, modify plan metadata and config, update SQL artifacts,
 execute queries, and validate SQL. Use them as needed to fulfill the user's request.
 
 <available_tables>
@@ -79,6 +92,10 @@ execute queries, and validate SQL. Use them as needed to fulfill the user's requ
 {plan_block}
 </current_plan>
 
+<current_plan_config>
+{config_block}
+</current_plan_config>
+
 <current_sql_artifacts>
 {artifacts_block}
 </current_sql_artifacts>
@@ -92,6 +109,7 @@ Guidelines:
 - Use execute_query to explore data or answer questions about the dataset.
 - Use validate_sql to check SQL correctness before committing artifacts.
 - Use update_plan to change plan name, type, or frequency.
+- Use update_plan_config to configure payout timing, payroll integration, or dispute settings.
 - If a tool returns an error, fix the issue and retry.
 - In your final response, always include the full composed SQL that combines all
   artifacts into a single WITH/CTE statement inside a ```sql code block.

@@ -38,6 +38,27 @@ class ArtifactOut(BaseModel):
     sql_expression: str
 
 
+class PayoutConfigOut(BaseModel):
+    is_automatic_payout_enabled: bool = False
+    final_payment_offset: int | None = None
+    is_draws_enabled: bool = False
+    draw_frequency: str | None = None
+
+
+class PayrollConfigOut(BaseModel):
+    payout_type: str | None = None
+
+
+class DisputeConfigOut(BaseModel):
+    is_disputes_enabled: bool = True
+
+
+class PlanConfigOut(BaseModel):
+    payout: PayoutConfigOut = PayoutConfigOut()
+    payroll: PayrollConfigOut = PayrollConfigOut()
+    disputes: DisputeConfigOut = DisputeConfigOut()
+
+
 class PlanOut(BaseModel):
     plan_id: str
     name: str
@@ -45,6 +66,7 @@ class PlanOut(BaseModel):
     frequency: str
     mode: str
     artifacts: list[ArtifactOut]
+    config: PlanConfigOut = PlanConfigOut()
     conversation_id: str | None = None
     skills: list["ConversationSkillOut"] | None = None
 
@@ -189,6 +211,13 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
             for _, sv, skill in skills_result.all()
         ] or None
 
+    cfg = plan.config
+    plan_config = PlanConfigOut(
+        payout=PayoutConfigOut(**cfg.get("payout", {})),
+        payroll=PayrollConfigOut(**cfg.get("payroll", {})),
+        disputes=DisputeConfigOut(**cfg.get("disputes", {})),
+    )
+
     return PlanOut(
         plan_id=plan.id,
         name=plan.name,
@@ -196,6 +225,7 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
         frequency=plan.frequency,
         mode=plan.mode,
         artifacts=[_artifact_to_out(a) for a in plan.artifacts],
+        config=plan_config,
         conversation_id=conv_id,
         skills=skills,
     )
@@ -522,6 +552,7 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
 
     plan_out = None
     if result.plan:
+        cfg = result.plan.get("config", {})
         plan_out = PlanOut(
             plan_id=result.plan["plan_id"],
             name=result.plan["name"],
@@ -529,6 +560,11 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
             frequency=result.plan["frequency"],
             mode=result.plan.get("mode", "AI_ASSISTED"),
             artifacts=current_artifacts,
+            config=PlanConfigOut(
+                payout=PayoutConfigOut(**cfg.get("payout", {})),
+                payroll=PayrollConfigOut(**cfg.get("payroll", {})),
+                disputes=DisputeConfigOut(**cfg.get("disputes", {})),
+            ),
             conversation_id=result.conversation_id,
         )
 

@@ -30,11 +30,15 @@ class SqlAlchemyPlanService(PlanServiceBase):
     async def create_plan(
         self, name: str, plan_type: str = "RECURRING", frequency: str = "QUARTERLY"
     ) -> dict:
+        from models import _default_plan_config
+        import json as _json
+
         plan = Plan(
             name=name,
             plan_type=plan_type.upper(),
             frequency=frequency.upper(),
             mode="AI_ASSISTED",
+            config_json=_json.dumps(_default_plan_config()),
         )
         self._session.add(plan)
         await self._session.commit()
@@ -125,6 +129,23 @@ class SqlAlchemyPlanService(PlanServiceBase):
         )
         return list(result.scalars())
 
+    async def update_plan_config(self, config_patch: dict) -> dict:
+        """Merge a partial config patch into the plan's config and persist."""
+        plan = self._require_plan()
+        current = plan.config
+
+        for section, fields in config_patch.items():
+            if section in current and isinstance(fields, dict):
+                current[section].update(fields)
+            else:
+                current[section] = fields
+
+        plan.config = current
+        await self._session.commit()
+        await self._session.refresh(plan)
+        log.info("Updated plan %s config: %s", plan.id, list(config_patch.keys()))
+        return plan.config
+
     @staticmethod
     def _plan_to_dict(plan: Plan) -> dict:
         return {
@@ -133,4 +154,5 @@ class SqlAlchemyPlanService(PlanServiceBase):
             "plan_type": plan.plan_type,
             "frequency": plan.frequency,
             "mode": plan.mode,
+            "config": plan.config,
         }
