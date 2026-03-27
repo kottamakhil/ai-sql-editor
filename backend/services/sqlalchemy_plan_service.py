@@ -124,10 +124,12 @@ class SqlAlchemyPlanService(PlanServiceBase):
         return self._plan
 
     async def _reload_plan(self) -> Plan:
-        """Re-query the plan with config eagerly loaded to avoid lazy-load in async."""
+        """Re-query the plan with relationships eagerly loaded to avoid lazy-load in async."""
         plan = self._require_plan()
         result = await self._session.execute(
-            select(Plan).options(selectinload(Plan.config)).where(Plan.id == plan.id)
+            select(Plan)
+            .options(selectinload(Plan.config), selectinload(Plan.inferred_config))
+            .where(Plan.id == plan.id)
         )
         self._plan = result.scalar_one()
         return self._plan
@@ -178,18 +180,24 @@ class SqlAlchemyPlanService(PlanServiceBase):
         return plan.config.to_dict() if plan.config else {}
 
     async def save_inferred_config(self, yaml_content: str) -> str:
-        """Save the LLM-inferred YAML to the plan."""
+        """Save or update the LLM-inferred YAML for the plan."""
+        from models import PlanInferredConfig
+
         plan = self._require_plan()
-        plan.inferred_config_yaml = yaml_content
+        if plan.inferred_config:
+            plan.inferred_config.content = yaml_content
+        else:
+            self._session.add(PlanInferredConfig(plan_id=plan.id, content=yaml_content))
         await self._session.commit()
+        await self._reload_plan()
         log.info("Saved inferred config for plan %s (%d chars)", plan.id, len(yaml_content))
         return yaml_content
 
     async def get_inferred_config(self) -> str | None:
         """Return the inferred config YAML."""
-        if not self._plan:
+        if not self._plan or not self._plan.inferred_config:
             return None
-        return self._plan.inferred_config_yaml
+        return self._plan.inferred_config.content
 
     @staticmethod
     def _plan_to_dict(plan: Plan) -> dict:
@@ -200,5 +208,5 @@ class SqlAlchemyPlanService(PlanServiceBase):
             "frequency": plan.frequency,
             "mode": plan.mode,
             "config": plan.config.to_dict() if plan.config else default_config_dict(),
-            "inferred_config": plan.inferred_config_yaml,
+            "inferred_config": plan.inferred_config.content if plan.inferred_config else None,
         }

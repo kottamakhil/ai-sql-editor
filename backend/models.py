@@ -54,7 +54,6 @@ class Plan(Base):
     plan_type: Mapped[str] = mapped_column(String(20), nullable=False, default="RECURRING")
     frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="QUARTERLY")
     mode: Mapped[str] = mapped_column(String(20), nullable=False, default="AI_ASSISTED")
-    inferred_config_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -63,6 +62,9 @@ class Plan(Base):
         back_populates="plan", cascade="all, delete-orphan", order_by="SqlArtifact.created_at"
     )
     config: Mapped["PlanConfig | None"] = relationship(
+        back_populates="plan", uselist=False, cascade="all, delete-orphan"
+    )
+    inferred_config: Mapped["PlanInferredConfig | None"] = relationship(
         back_populates="plan", uselist=False, cascade="all, delete-orphan"
     )
 
@@ -101,6 +103,20 @@ class PlanConfig(Base):
                 "is_disputes_enabled": self.is_disputes_enabled,
             },
         }
+
+
+class PlanInferredConfig(Base):
+    """1:1 table storing the LLM-inferred plan configuration YAML."""
+    __tablename__ = "plan_inferred_configs"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False, unique=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    plan: Mapped["Plan"] = relationship(back_populates="inferred_config")
 
 
 def default_config_dict() -> dict:

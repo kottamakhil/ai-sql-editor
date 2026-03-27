@@ -227,7 +227,7 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
         mode=plan.mode,
         artifacts=[_artifact_to_out(a) for a in plan.artifacts],
         config=plan_config,
-        inferred_config=plan.inferred_config_yaml,
+        inferred_config=plan.inferred_config.content if plan.inferred_config else None,
         conversation_id=conv_id,
         skills=skills,
     )
@@ -239,7 +239,9 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
 @router.get("/plans", response_model=list[PlanOut])
 async def list_plans(session: AsyncSession = Depends(get_db)):
     result = await session.execute(
-        select(Plan).options(selectinload(Plan.artifacts), selectinload(Plan.config)).order_by(Plan.created_at.desc())
+        select(Plan).options(
+            selectinload(Plan.artifacts), selectinload(Plan.config), selectinload(Plan.inferred_config)
+        ).order_by(Plan.created_at.desc())
     )
     return [await _plan_to_out(p, session) for p in result.scalars()]
 

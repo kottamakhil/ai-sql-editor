@@ -165,4 +165,15 @@ check_json "$LIST_RESP" "List conversations"
 CONV_COUNT=$(echo "$LIST_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 [ "$CONV_COUNT" -ge 1 ] && pass "Plan has $CONV_COUNT conversation(s)" || fail "No conversations"
 
+# ── Plan response shape ──
+step "Plan response shape"
+PLAN_FINAL=$(curl -s "$BASE/api/plans/$PLAN_ID")
+check_json "$PLAN_FINAL" "Final plan"
+
+HAS_CONV_ID=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; print(json.load(sys.stdin).get('conversation_id') is not None)")
+[ "$HAS_CONV_ID" = "True" ] && pass "Plan has conversation_id" || debug "No conversation_id (may not be linked)"
+
+HAS_CONFIG=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; print('config' in json.load(sys.stdin))")
+[ "$HAS_CONFIG" = "True" ] && pass "Plan has config" || fail "No config in plan"
+
 summary

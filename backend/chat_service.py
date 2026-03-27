@@ -193,7 +193,9 @@ async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
     """Load a plan with its artifacts eagerly loaded."""
 
     result = await session.execute(
-        select(Plan).options(selectinload(Plan.artifacts), selectinload(Plan.config)).where(Plan.id == plan_id)
+        select(Plan).options(
+            selectinload(Plan.artifacts), selectinload(Plan.config), selectinload(Plan.inferred_config)
+        ).where(Plan.id == plan_id)
     )
     plan = result.scalar_one_or_none()
     if not plan:

@@ -90,4 +90,38 @@ LIST_SKILLS=$(curl -s "$BASE/api/skills")
 check_json "$LIST_SKILLS" "List skills"
 pass "Listed skills"
 
+# ── Plan Templates CRUD ──
+step "Plan Templates CRUD"
+TPL_RESP=$(curl -s -X POST "$BASE/api/plan-templates" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Test Template", "content": "plan:\n  name: TODO\n  type: TODO"}')
+check_json "$TPL_RESP" "Create template"
+TPL_ID=$(echo "$TPL_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['template_id'])")
+pass "Created template $TPL_ID"
+
+GET_TPL=$(curl -s "$BASE/api/plan-templates/$TPL_ID")
+check_json "$GET_TPL" "Get template"
+pass "Got template"
+
+LIST_TPL=$(curl -s "$BASE/api/plan-templates")
+check_json "$LIST_TPL" "List templates"
+pass "Listed templates"
+
+UPD_TPL=$(curl -s -X PUT "$BASE/api/plan-templates/$TPL_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Updated Template", "content": "plan:\n  name: TODO\n  type: recurring"}')
+check_json "$UPD_TPL" "Update template"
+UPD_NAME=$(echo "$UPD_TPL" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+[ "$UPD_NAME" = "Updated Template" ] && pass "Template updated" || fail "Template name not updated"
+
+# ── Plan config in response ──
+step "Plan config in response"
+PLAN_WITH_CFG=$(curl -s "$BASE/api/plans/$PLAN_ID")
+check_json "$PLAN_WITH_CFG" "Plan with config"
+HAS_CONFIG=$(echo "$PLAN_WITH_CFG" | python3 -c "import sys,json; print('config' in json.load(sys.stdin))")
+[ "$HAS_CONFIG" = "True" ] && pass "Plan includes config" || fail "No config in plan response"
+
+HAS_PAYOUT=$(echo "$PLAN_WITH_CFG" | python3 -c "import sys,json; print('payout' in json.load(sys.stdin)['config'])")
+[ "$HAS_PAYOUT" = "True" ] && pass "Config includes payout section" || fail "No payout in config"
+
 summary
