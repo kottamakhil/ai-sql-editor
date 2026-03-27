@@ -288,6 +288,8 @@ If a tool returns an error (e.g., invalid SQL), the result is fed back to the LL
 - OpenAI SDK (gpt-5.4) with tool calling
 - Pydantic models for all request/response schemas
 - SQLAlchemy async ORM
+- Structured JSON logging with request ID middleware
+- Optional Datadog log shipping via datadog-api-client
 - `uv` for dependency management
 - pytest + httpx for testing
 
@@ -300,6 +302,8 @@ ai-sql-editor/
 │   ├── agent.py             # Agent loop orchestrator, system prompt
 │   ├── chat_service.py      # Chat orchestration, persistence
 │   ├── llm.py               # OpenAI client
+│   ├── logging_config.py    # JSON formatter + Datadog log handler
+│   ├── middleware.py        # Request ID middleware
 │   ├── database.py          # Async SQLAlchemy engine
 │   ├── models.py            # ORM models
 │   ├── routes.py            # HTTP handlers (thin layer)

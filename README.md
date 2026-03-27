@@ -22,10 +22,13 @@ uv sync
 export DATABASE_URL="postgresql+asyncpg://postgres:YOUR-PASSWORD@db.YOUR-PROJECT.supabase.co:5432/postgres"
 export OPENAI_API_KEY="sk-..."
 
+# Optional: enable Datadog log shipping
+export DD_API_KEY="your-datadog-api-key"
+
 uv run uvicorn main:app --reload --port 8000
 ```
 
-The server creates tables and seeds sample data on first run.
+The server creates tables and seeds sample data on first run. Logs are emitted as structured JSON to stdout. If `DD_API_KEY` is set, logs are also shipped to Datadog.
 
 ## Quick test
 
@@ -97,6 +100,8 @@ ai-sql-editor/
 │   ├── agent.py             # Agent loop orchestrator, system prompt builder
 │   ├── chat_service.py      # Chat orchestration (message building, persistence)
 │   ├── llm.py               # OpenAI client (call_openai_with_tools)
+│   ├── logging_config.py    # JSON formatter + Datadog log handler
+│   ├── middleware.py        # Request ID middleware (X-Request-ID)
 │   ├── database.py          # Async SQLAlchemy engine, session factory
 │   ├── models.py            # SQLAlchemy ORM models
 │   ├── routes.py            # HTTP endpoint handlers (thin layer)
@@ -160,3 +165,7 @@ ai-sql-editor/
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `DATABASE_URL` | Yes | PostgreSQL connection string, e.g. `postgresql+asyncpg://user:pass@host:5432/db` |
 | `OPENAI_MODEL` | No | Model name (defaults to `gpt-5.4`) |
+| `DD_API_KEY` | No | Datadog API key. If set, logs are shipped to Datadog via HTTP API |
+| `DD_SITE` | No | Datadog site (defaults to `datadoghq.com`) |
+| `DD_SERVICE` | No | Service name in Datadog (defaults to `ai-sql-editor`) |
+| `DD_ENV` | No | Environment tag (defaults to `dev`) |
