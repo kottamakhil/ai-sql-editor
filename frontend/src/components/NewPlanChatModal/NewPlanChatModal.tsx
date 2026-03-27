@@ -75,12 +75,12 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
     setIsThinking(true);
     setPendingQuestions(null);
 
-    const payload: { message: string; conversation_id: string | null; skills?: string[] } = {
+    const payload: { message: string; conversation_id: string | null; skill_ids?: string[] } = {
       message: text,
       conversation_id: conversationId,
     };
     if (!conversationId && selectedSkills.size > 0) {
-      payload.skills = Array.from(selectedSkills);
+      payload.skill_ids = Array.from(selectedSkills);
     }
 
     chatMutation.mutate(

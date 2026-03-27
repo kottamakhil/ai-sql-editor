@@ -94,7 +94,7 @@ export interface ToolCallOut {
 export interface ChatRequest {
   message: string;
   conversation_id?: string | null;
-  skills?: string[];
+  skill_ids?: string[];
 }
 
 export interface ChatResponse {

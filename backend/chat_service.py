@@ -210,6 +210,7 @@ async def _load_conversation_skills(conversation_id: str, session: AsyncSession)
 
     result = await session.execute(
         select(Skill.name, SkillVersion.content)
+        .select_from(ConversationSkillVersion)
         .join(SkillVersion, ConversationSkillVersion.skill_version_id == SkillVersion.id)
         .join(Skill, SkillVersion.skill_id == Skill.id)
         .where(ConversationSkillVersion.conversation_id == conversation_id)
