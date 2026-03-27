@@ -29,11 +29,13 @@ registry = ToolRegistry()
 
 def _register_all() -> None:
     from tools.ask_clarification import AskClarificationTool
+    from tools.create_plan import CreatePlanTool
     from tools.execute_query import ExecuteQueryTool
     from tools.update_plan import UpdatePlanTool
     from tools.update_sql_artifacts import UpdateSqlArtifactsTool
     from tools.validate_sql import ValidateSqlTool
 
+    registry.register(CreatePlanTool())
     registry.register(UpdateSqlArtifactsTool())
     registry.register(UpdatePlanTool())
     registry.register(ExecuteQueryTool())

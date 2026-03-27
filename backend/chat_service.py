@@ -15,8 +15,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from agent import AgentResult, build_system_prompt, compose_sql_from_artifacts, run_agent_loop
+from agent import AgentResult, build_system_prompt, run_agent_loop
 from models import Conversation, ConversationMessage, Plan, Skill, SqlArtifact
+from services.sqlalchemy_plan_service import SqlAlchemyPlanService
 
 log = logging.getLogger(__name__)
 
@@ -31,31 +32,45 @@ class ChatResult:
     conversation_id: str
     composed_sql: str | None
     agent_result: AgentResult
-    plan: Plan
-    artifacts: list[SqlArtifact]
+    plan: dict | None
+    artifacts: list[dict]
 
 
 async def process_chat(
-    plan_id: str,
     message: str,
     conversation_id: str | None,
     session: AsyncSession,
 ) -> ChatResult:
     """Run a full chat turn: load context, invoke agent, persist, return result."""
 
-    plan = await _load_plan(plan_id, session)
-    conversation = await _get_or_create_conversation(conversation_id, plan_id, session)
+    conversation = await _get_or_create_conversation(conversation_id, session)
+
+    plan = None
+    if conversation.plan_id:
+        plan = await _load_plan(conversation.plan_id, session)
+
+    plan_service = SqlAlchemyPlanService(session, plan)
+
     skills = await _load_skills(session)
     schema_ddls = await _get_schema_ddls(session)
 
-    messages = _build_messages(plan, list(plan.artifacts), skills, schema_ddls, conversation, message)
+    plan_dict = await plan_service.get_plan()
+    artifacts_dict = await plan_service.get_artifacts()
+    skills_dict = [{"name": s.name, "content": s.content} for s in skills]
+
+    system_prompt = build_system_prompt(plan_dict, artifacts_dict, skills_dict, schema_ddls)
+    history = _load_history(conversation)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        *history,
+        {"role": "user", "content": message},
+    ]
 
     agent_result = await run_agent_loop(
         messages=messages,
-        plan=plan,
-        session=session,
-        artifacts=list(plan.artifacts),
-        skills=skills,
+        plan_service=plan_service,
+        skills=skills_dict,
         schema_ddls=schema_ddls,
     )
     log.info(
@@ -64,7 +79,11 @@ async def process_chat(
         len(agent_result.tool_calls),
     )
 
-    await _save_conversation_messages(session, conversation, message, messages)
+    if plan_service.plan and not conversation.plan_id:
+        conversation.plan_id = plan_service.plan.id
+        log.info("Linked conversation %s to plan %s", conversation.id, plan_service.plan.id)
+
+    await _save_conversation_messages(session, conversation, message, messages, history)
 
     if agent_result.pending_questions:
         conversation.pending_questions_json = json.dumps(agent_result.pending_questions)
@@ -73,42 +92,50 @@ async def process_chat(
 
     await session.commit()
 
-    await session.refresh(plan)
-    artifacts = await _load_artifacts(plan_id, session)
-    composed_sql = compose_sql_from_artifacts(artifacts)
+    final_plan = agent_result.plan
+    final_artifacts = await plan_service.get_artifacts()
+    composed_sql = _compose_sql(final_artifacts)
 
     return ChatResult(
         response_text=agent_result.response_text,
         conversation_id=conversation.id,
         composed_sql=composed_sql,
         agent_result=agent_result,
-        plan=plan,
-        artifacts=artifacts,
+        plan=final_plan,
+        artifacts=final_artifacts,
     )
 
 
-def _build_messages(
-    plan: Plan,
-    artifacts: list[SqlArtifact],
-    skills: list[Skill],
-    schema_ddls: list[str],
-    conversation: Conversation,
-    user_message: str,
-) -> list[dict]:
-    """Assemble the OpenAI messages array with system prompt, filtered history, and new user message."""
+def _load_history(conversation: Conversation) -> list[dict]:
+    """Filter conversation messages to only user + final assistant (no tool calls)."""
 
-    system_prompt = build_system_prompt(plan, artifacts, skills, schema_ddls)
-
-    history = [
+    return [
         m.to_openai_message() for m in conversation.messages
         if m.role in ("user", "assistant") and not m.tool_calls_json
     ]
 
-    return [
-        {"role": "system", "content": system_prompt},
-        *history,
-        {"role": "user", "content": user_message},
-    ]
+
+def _compose_sql(artifacts: list[dict]) -> str | None:
+    """Build a WITH/CTE query from artifact dicts."""
+
+    if not artifacts:
+        return None
+
+    named = {a["name"]: a for a in artifacts if a.get("name")}
+    payout = named.get("payout")
+    if not payout:
+        return artifacts[-1]["sql"]
+
+    cte_parts = []
+    for a in artifacts:
+        if a["name"] != "payout":
+            cte_parts.append(f"{a['name']} AS (\n  {a['sql']}\n)")
+
+    if not cte_parts:
+        return payout["sql"]
+
+    cte_block = ",\n".join(cte_parts)
+    return f"WITH {cte_block}\n{payout['sql']}"
 
 
 async def _save_conversation_messages(
@@ -116,14 +143,11 @@ async def _save_conversation_messages(
     conversation: Conversation,
     user_message: str,
     all_messages: list[dict],
+    history: list[dict],
 ) -> None:
-    """Persist the user message and all agent-generated messages to the conversation."""
+    """Persist the user message and all agent-generated messages."""
 
-    history_count = sum(
-        1 for m in conversation.messages
-        if m.role in ("user", "assistant") and not m.tool_calls_json
-    )
-    new_msg_start = history_count + 2
+    new_msg_start = len(history) + 2
 
     session.add(ConversationMessage(
         conversation_id=conversation.id, role="user", content=user_message,
@@ -159,18 +183,9 @@ async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
 
 
 async def _load_skills(session: AsyncSession) -> list[Skill]:
-    """Load all skills for inclusion in the system prompt."""
+    """Load all skills."""
 
     result = await session.execute(select(Skill))
-    return list(result.scalars())
-
-
-async def _load_artifacts(plan_id: str, session: AsyncSession) -> list[SqlArtifact]:
-    """Load artifacts for a plan, ordered by creation time."""
-
-    result = await session.execute(
-        select(SqlArtifact).where(SqlArtifact.plan_id == plan_id).order_by(SqlArtifact.created_at)
-    )
     return list(result.scalars())
 
 
@@ -202,10 +217,9 @@ async def _get_schema_ddls(session: AsyncSession) -> list[str]:
 
 async def _get_or_create_conversation(
     conversation_id: str | None,
-    plan_id: str,
     session: AsyncSession,
 ) -> Conversation:
-    """Load an existing conversation or create a new one for the plan."""
+    """Load an existing conversation or create a new one (no plan_id required)."""
 
     if conversation_id:
         result = await session.execute(
@@ -218,7 +232,7 @@ async def _get_or_create_conversation(
             raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
         return conv
 
-    conv = Conversation(plan_id=plan_id)
+    conv = Conversation()
     session.add(conv)
     await session.flush()
 

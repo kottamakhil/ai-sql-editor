@@ -1,54 +1,49 @@
+"""Base classes for the tool system.
+
+These are portable across storage backends. Tools depend only on
+PlanServiceBase (an ABC), never on ORM models or database sessions.
+"""
+
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from models import Plan, Skill, SqlArtifact
+from services.plan_service import PlanServiceBase
 
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class ToolContext:
-    session: AsyncSession
-    plan: Plan
-    artifacts: list[SqlArtifact]
-    skills: list[Skill]
+    """Shared state passed to every tool during an agent loop iteration."""
+
+    plan_service: PlanServiceBase
+    skills: list[dict]
     schema_ddls: list[str]
-
-    async def reload_artifacts(self) -> None:
-        from sqlalchemy import select
-
-        result = await self.session.execute(
-            select(SqlArtifact)
-            .where(SqlArtifact.plan_id == self.plan.id)
-            .order_by(SqlArtifact.created_at)
-        )
-        self.artifacts = list(result.scalars())
-
-    async def reload_plan(self) -> None:
-        await self.session.refresh(self.plan)
 
 
 @dataclass
 class ToolResult:
+    """Structured result returned by a tool execution."""
+
     success: bool
     data: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
     def to_message(self) -> str:
-        import json
-
+        """Serialize for inclusion in the OpenAI tool response message."""
         if self.error:
             return json.dumps({"success": False, "error": self.error})
         return json.dumps({"success": True, **self.data})
 
 
 class BaseTool(ABC):
+    """Protocol for all tools. Implement name, description, parameters_schema, and execute."""
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -69,6 +64,7 @@ class BaseTool(ABC):
         ...
 
     def openai_function_def(self) -> dict:
+        """Return the OpenAI function calling schema for this tool."""
         return {
             "type": "function",
             "function": {

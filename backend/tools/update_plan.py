@@ -1,3 +1,5 @@
+"""Tool for updating plan metadata."""
+
 import logging
 
 from tools.base import BaseTool, ToolContext, ToolResult
@@ -37,34 +39,16 @@ class UpdatePlanTool(BaseTool):
         }
 
     async def execute(self, arguments: dict, context: ToolContext) -> ToolResult:
-        plan = context.plan
-        updated_fields = []
-
-        if "name" in arguments:
-            plan.name = arguments["name"].strip()
-            updated_fields.append("name")
-        if "plan_type" in arguments:
-            plan.plan_type = arguments["plan_type"].upper()
-            updated_fields.append("plan_type")
-        if "frequency" in arguments:
-            plan.frequency = arguments["frequency"].upper()
-            updated_fields.append("frequency")
-
-        if not updated_fields:
+        fields = {k: v for k, v in arguments.items() if v is not None}
+        if not fields:
             return ToolResult(success=True, data={"message": "No fields to update"})
 
-        await context.session.commit()
-        await context.reload_plan()
-        log.info("Updated plan %s fields: %s", plan.id, updated_fields)
+        try:
+            plan = await context.plan_service.update_plan(**fields)
+        except ValueError as exc:
+            return ToolResult(success=False, error=str(exc))
 
         return ToolResult(
             success=True,
-            data={
-                "updated_fields": updated_fields,
-                "plan": {
-                    "name": plan.name,
-                    "plan_type": plan.plan_type,
-                    "frequency": plan.frequency,
-                },
-            },
+            data={"updated_fields": list(fields.keys()), "plan": plan},
         )

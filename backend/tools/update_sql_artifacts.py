@@ -1,7 +1,7 @@
+"""Tool for replacing all SQL artifacts on the current plan."""
+
 import logging
 
-from executor import execute_artifact
-from models import SqlArtifact
 from tools.base import BaseTool, ToolContext, ToolResult
 
 log = logging.getLogger(__name__)
@@ -52,34 +52,14 @@ class UpdateSqlArtifactsTool(BaseTool):
         if not specs:
             return ToolResult(success=False, error="No artifacts provided")
 
-        old_count = len(context.artifacts)
-        for old in list(context.artifacts):
-            await context.session.delete(old)
-        await context.session.commit()
-        log.info("Deleted %d old artifact(s) for plan=%s", old_count, context.plan.id)
+        try:
+            results = await context.plan_service.replace_artifacts(specs)
+        except ValueError as exc:
+            return ToolResult(success=False, error=str(exc))
 
-        for spec in specs:
-            context.session.add(
-                SqlArtifact(plan_id=context.plan.id, name=spec["name"], sql_expression=spec["sql"])
-            )
-        await context.session.commit()
-        await context.reload_artifacts()
-        log.info("Created %d artifact(s) for plan=%s", len(specs), context.plan.id)
-
-        execution_results = []
-        for artifact in context.artifacts:
-            result = await execute_artifact(artifact, context.artifacts, context.session)
-            execution_results.append({
-                "name": artifact.name,
-                "sql": artifact.sql_expression,
-                "row_count": result.row_count,
-                "columns": result.columns,
-                "error": result.error,
-            })
-
-        has_errors = any(r["error"] for r in execution_results)
+        has_errors = any(r.get("error") for r in results)
         return ToolResult(
             success=not has_errors,
-            data={"artifacts": execution_results},
+            data={"artifacts": results},
             error="Some artifacts failed execution" if has_errors else None,
         )

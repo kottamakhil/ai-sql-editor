@@ -92,7 +92,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
-    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False)
+    plan_id: Mapped[str | None] = mapped_column(String(12), ForeignKey("plans.id"), nullable=True)
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     pending_questions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(

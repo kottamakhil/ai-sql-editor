@@ -95,7 +95,6 @@ class ClarificationQuestion(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    plan_id: str
     message: str
     conversation_id: str | None = None
 
@@ -112,23 +111,23 @@ class ChatResponse(BaseModel):
     composed_sql: str | None = None
     tool_calls: list[ToolCallOut]
     current_artifacts: list[ArtifactOut]
-    plan: PlanOut
-    iterations: int
+    plan: PlanOut | None = None
+    iterations: int = 0
     pending_questions: list[ClarificationQuestion] | None = None
 
 
 class ConversationOut(BaseModel):
     conversation_id: str
-    plan_id: str
-    title: str | None
+    plan_id: str | None = None
+    title: str | None = None
     pending_questions: list[ClarificationQuestion] | None = None
     messages: list[MessageOut]
 
 
 class ConversationSummaryOut(BaseModel):
     conversation_id: str
-    plan_id: str
-    title: str | None
+    plan_id: str | None = None
+    title: str | None = None
     message_count: int
 
 
@@ -428,12 +427,27 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
-    result = await process_chat(req.plan_id, req.message, req.conversation_id, session)
+    result = await process_chat(req.message, req.conversation_id, session)
     return _chat_result_to_response(result)
 
 
 def _chat_result_to_response(result: ChatResult) -> ChatResponse:
-    current_artifacts = [_artifact_to_out(a) for a in result.artifacts]
+    current_artifacts = [
+        ArtifactOut(artifact_id=a.get("artifact_id", ""), name=a.get("name"), sql_expression=a.get("sql", ""))
+        for a in result.artifacts
+    ]
+
+    plan_out = None
+    if result.plan:
+        plan_out = PlanOut(
+            plan_id=result.plan["plan_id"],
+            name=result.plan["name"],
+            plan_type=result.plan["plan_type"],
+            frequency=result.plan["frequency"],
+            mode=result.plan.get("mode", "AI_ASSISTED"),
+            artifacts=current_artifacts,
+        )
+
     return ChatResponse(
         response=result.response_text,
         conversation_id=result.conversation_id,
@@ -449,14 +463,7 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
             for tc in result.agent_result.tool_calls
         ],
         current_artifacts=current_artifacts,
-        plan=PlanOut(
-            plan_id=result.plan.id,
-            name=result.plan.name,
-            plan_type=result.plan.plan_type,
-            frequency=result.plan.frequency,
-            mode=result.plan.mode,
-            artifacts=current_artifacts,
-        ),
+        plan=plan_out,
         iterations=result.agent_result.iterations,
         pending_questions=_parse_questions(result.agent_result.pending_questions),
     )

@@ -1,6 +1,7 @@
+"""Tool for validating SQL syntax without executing it."""
+
 import logging
 
-from sqlalchemy import text
 from tools.base import BaseTool, ToolContext, ToolResult
 
 log = logging.getLogger(__name__)
@@ -38,11 +39,8 @@ class ValidateSqlTool(BaseTool):
             return ToolResult(success=False, error="No SQL provided")
 
         log.info("Validating SQL: %s", sql[:200])
-        try:
-            async with context.session.begin_nested():
-                await context.session.execute(text(f"EXPLAIN {sql}"))
+        result = await context.plan_service.validate_sql(sql)
+
+        if result["valid"]:
             return ToolResult(success=True, data={"valid": True})
-        except Exception as exc:
-            error_msg = str(exc).split("\n")[0]
-            log.info("Validation failed: %s", error_msg)
-            return ToolResult(success=False, data={"valid": False}, error=error_msg)
+        return ToolResult(success=False, data={"valid": False}, error=result["error"])

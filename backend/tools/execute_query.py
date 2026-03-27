@@ -1,6 +1,7 @@
+"""Tool for running read-only SQL queries for data exploration."""
+
 import logging
 
-from executor import execute_raw_sql
 from tools.base import BaseTool, ToolContext, ToolResult
 
 log = logging.getLogger(__name__)
@@ -40,20 +41,20 @@ class ExecuteQueryTool(BaseTool):
             return ToolResult(success=False, error="No SQL provided")
 
         log.info("Executing query: %s", sql[:200])
-        result = await execute_raw_sql(sql, context.session)
+        result = await context.plan_service.execute_sql(sql)
 
-        if result.error:
-            return ToolResult(success=False, error=result.error)
+        if result.get("error"):
+            return ToolResult(success=False, error=result["error"])
 
-        truncated = len(result.rows) > MAX_ROWS_IN_RESULT
-        rows = result.rows[:MAX_ROWS_IN_RESULT]
+        truncated = len(result["rows"]) > MAX_ROWS_IN_RESULT
+        rows = result["rows"][:MAX_ROWS_IN_RESULT]
 
         return ToolResult(
             success=True,
             data={
-                "columns": result.columns,
+                "columns": result["columns"],
                 "rows": rows,
-                "row_count": result.row_count,
+                "row_count": result["row_count"],
                 "truncated": truncated,
             },
         )
