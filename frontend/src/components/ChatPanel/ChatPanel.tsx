@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import { useChat, useConversations, useConversation } from '../../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,7 @@ import {
 } from './ChatPanel.styles';
 
 export function ChatPanel({ planId }: ChatPanelProps) {
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<DisplayMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -27,24 +27,29 @@ export function ChatPanel({ planId }: ChatPanelProps) {
   const chatMutation = useChat();
   const { data: conversations } = useConversations(planId);
   const latestConvId = conversations?.[0]?.conversation_id ?? null;
-  const { data: existingConv } = useConversation(
-    conversationId || latestConvId,
-  );
-  const [loaded, setLoaded] = useState(false);
+  const activeConvId = conversationId || latestConvId;
+  const { data: existingConv } = useConversation(activeConvId);
 
-  const loadExistingConversation = useCallback(() => {
-    if (existingConv && !loaded && messages.length === 0) {
-      setLoaded(true);
-      setConversationId(existingConv.conversation_id);
-      setMessages(
-        existingConv.messages.map((m) => ({ role: m.role, content: m.content })),
-      );
+  if (existingConv && !conversationId) {
+    setConversationId(existingConv.conversation_id);
+  }
+
+  const serverMessages: DisplayMessage[] = useMemo(() => {
+    if (!existingConv) return [];
+    return existingConv.messages.map((m) => ({ role: m.role, content: m.content }));
+  }, [existingConv]);
+
+  const messages = useMemo(() => {
+    if (pendingMessages.length === 0) return serverMessages;
+    if (serverMessages.length > 0) {
+      const lastServer = serverMessages[serverMessages.length - 1];
+      const firstPending = pendingMessages[0];
+      if (lastServer.content === firstPending.content && lastServer.role === firstPending.role) {
+        return serverMessages;
+      }
     }
-  }, [existingConv, loaded, messages.length]);
-
-  useEffect(() => {
-    loadExistingConversation();
-  }, [loadExistingConversation]);
+    return [...serverMessages, ...pendingMessages];
+  }, [serverMessages, pendingMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -65,7 +70,7 @@ export function ChatPanel({ planId }: ChatPanelProps) {
     const userMsg = input.trim();
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
+    setPendingMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setIsThinking(true);
 
     chatMutation.mutate(
@@ -76,16 +81,19 @@ export function ChatPanel({ planId }: ChatPanelProps) {
       {
         onSuccess: (res) => {
           setConversationId(res.conversation_id);
-          setMessages((prev) => [
+          setPendingMessages((prev) => [
             ...prev,
             { role: 'assistant', content: res.response },
           ]);
           setIsThinking(false);
           queryClient.invalidateQueries({ queryKey: ['plan', planId] });
           queryClient.invalidateQueries({ queryKey: ['conversations', planId] });
+          queryClient.invalidateQueries({ queryKey: ['conversation', res.conversation_id] }).then(() => {
+            setPendingMessages([]);
+          });
         },
         onError: () => {
-          setMessages((prev) => [
+          setPendingMessages((prev) => [
             ...prev,
             { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
           ]);

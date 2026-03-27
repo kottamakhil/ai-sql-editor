@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { usePlan } from '../../actions/plans';
 import { SummaryTab } from '../../components/SummaryTab/SummaryTab';
 import { ArtifactsTab } from '../../components/ArtifactsTab/ArtifactsTab';
+import { PlanConfigTab } from '../../components/PlanConfigTab';
 import { ChatPanel } from '../../components/ChatPanel/ChatPanel';
 import type { TabId } from './PlanDetail.types';
 import {
@@ -46,11 +47,15 @@ export function PlanDetail() {
           <Tab $active={activeTab === 'artifacts'} onClick={() => setActiveTab('artifacts')}>
             Artifacts
           </Tab>
+          <Tab $active={activeTab === 'config'} onClick={() => setActiveTab('config')}>
+            Plan Config
+          </Tab>
         </TabBar>
 
         <TabContent>
           {activeTab === 'summary' && <SummaryTab plan={plan} />}
           {activeTab === 'artifacts' && <ArtifactsTab artifacts={plan.artifacts} planId={planId!} />}
+          {activeTab === 'config' && <PlanConfigTab plan={plan} planId={planId!} />}
         </TabContent>
       </MainContent>
 
