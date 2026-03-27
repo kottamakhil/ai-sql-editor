@@ -67,7 +67,7 @@ class SqlArtifact(Base):
     __tablename__ = "sql_artifacts"
 
     id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
-    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False)
+    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     sql_expression: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
@@ -92,7 +92,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
-    plan_id: Mapped[str | None] = mapped_column(String(12), ForeignKey("plans.id"), nullable=True)
+    plan_id: Mapped[str | None] = mapped_column(String(12), ForeignKey("plans.id", ondelete="CASCADE"), nullable=True)
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     pending_questions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
@@ -112,7 +112,7 @@ class ConversationMessage(Base):
 
     id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
     conversation_id: Mapped[str] = mapped_column(
-        String(12), ForeignKey("conversations.id"), nullable=False
+        String(12), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(_MESSAGE_ROLE_MAX), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
