@@ -246,3 +246,70 @@ export const SendBtn = styled.button<{ $active: boolean }>`
   &:hover { background: ${(p) => (p.$active ? '#4a1239' : '#e5e7eb')}; }
   svg { width: 14px; height: 14px; }
 `;
+
+export const AttachBtn = styled.button<{ $uploading?: boolean }>`
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: ${(p) => (p.$uploading ? '#5b1647' : '#6b7280')};
+  cursor: ${(p) => (p.$uploading ? 'default' : 'pointer')};
+  flex-shrink: 0;
+  opacity: ${(p) => (p.$uploading ? 0.6 : 1)};
+  &:hover { background: #f3f4f6; color: #374151; }
+  svg { width: 16px; height: 16px; }
+
+  ${(p) =>
+    p.$uploading &&
+    `
+    @keyframes spin { to { transform: rotate(360deg); } }
+    svg { animation: spin 1s linear infinite; }
+  `}
+`;
+
+export const FileChipsRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+`;
+
+export const FileChip = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  font-size: 12px;
+  color: #374151;
+  max-width: 200px;
+`;
+
+export const FileChipName = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+export const FileChipRemove = styled.button`
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  &:hover { color: #dc2626; background: #fee2e2; }
+  svg { width: 12px; height: 12px; }
+`;

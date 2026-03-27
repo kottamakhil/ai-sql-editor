@@ -114,10 +114,18 @@ export interface ToolCallOut {
   result: unknown;
 }
 
+export interface ChatFileOut {
+  file_id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+}
+
 export interface ChatRequest {
   message: string;
   conversation_id?: string | null;
   skill_ids?: string[];
+  file_ids?: string[];
 }
 
 export interface ChatResponse {

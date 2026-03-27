@@ -5,6 +5,7 @@ import type {
   PlanUpdate,
   ChatRequest,
   ChatResponse,
+  ChatFileOut,
   Artifact,
   ArtifactCreate,
   PreviewResponse,
@@ -61,6 +62,17 @@ export const deleteArtifact = (artifactId: string) =>
 
 export const sendChat = (data: ChatRequest) =>
   http<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify(data) });
+
+export async function uploadChatFile(file: File): Promise<ChatFileOut> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE}/chat/upload`, { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status}: ${body}`);
+  }
+  return res.json();
+}
 
 // ---- Execute ----
 

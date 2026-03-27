@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
-import { useChat, useSkills } from '../../actions/plans';
+import { useChat, useSkills, uploadChatFile } from '../../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClarificationCard } from '../ClarificationCard/ClarificationCard';
 import type { ClarificationQuestion } from '../../types';
@@ -21,11 +21,38 @@ import {
   InputWrapper,
   Textarea,
   SendBtn,
+  AttachBtn,
+  FileChipsRow,
+  FileChip,
+  FileChipName,
+  FileChipRemove,
   SkillPickerSection,
   SkillPickerLabel,
   SkillChips,
   SkillChip,
 } from './NewPlanChatModal.styles';
+
+const ALLOWED_MIME_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'application/pdf', 'text/csv', 'text/plain',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+const ALLOWED_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'csv', 'xlsx', 'docx',
+]);
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+function isFileAllowed(file: File): boolean {
+  if (ALLOWED_MIME_TYPES.has(file.type)) return true;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return ALLOWED_EXTENSIONS.has(ext);
+}
+
+interface PendingFile {
+  file: File;
+  filename: string;
+}
 
 export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const navigate = useNavigate();
@@ -41,9 +68,12 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const [pendingQuestions, setPendingQuestions] = useState<ClarificationQuestion[] | null>(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [collectedAnswers, setCollectedAnswers] = useState<{ question: string; answer: string }[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -66,21 +96,54 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   };
 
   const hasStarted = messages.length > 0 || isThinking;
-  const canSend = input.trim().length > 0 && !isThinking;
+  const canSend = (input.trim().length > 0 || pendingFiles.length > 0) && !isThinking && !isUploading;
 
-  const sendMessage = useCallback((text: string) => {
-    if (!text.trim() || isThinking) return;
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    e.target.value = '';
 
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+    const valid: PendingFile[] = [];
+    for (const file of files) {
+      if (!isFileAllowed(file)) {
+        alert(`Unsupported file type: ${file.name}`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`File too large (max 20 MB): ${file.name}`);
+        continue;
+      }
+      valid.push({ file, filename: file.name });
+    }
+    if (valid.length > 0) {
+      setPendingFiles((prev) => [...prev, ...valid]);
+    }
+  };
+
+  const removeFile = (filename: string) => {
+    setPendingFiles((prev) => prev.filter((f) => f.filename !== filename));
+  };
+
+  const sendMessage = useCallback((text: string, fileIds?: string[]) => {
+    const hasText = text.trim().length > 0;
+    const hasFiles = fileIds && fileIds.length > 0;
+    if ((!hasText && !hasFiles) || isThinking) return;
+
+    const displayText = hasText ? text : `Attached ${fileIds!.length} file${fileIds!.length > 1 ? 's' : ''}`;
+    setMessages((prev) => [...prev, { role: 'user', content: displayText }]);
     setIsThinking(true);
     setPendingQuestions(null);
 
-    const payload: { message: string; conversation_id: string | null; skill_ids?: string[] } = {
-      message: text,
+    const payload: { message: string; conversation_id: string | null; skill_ids?: string[]; file_ids?: string[] } = {
+      message: hasText ? text : 'Please analyze the attached file(s).',
       conversation_id: conversationId,
     };
     if (!conversationId && selectedSkills.size > 0) {
       payload.skill_ids = Array.from(selectedSkills);
+    }
+    if (fileIds && fileIds.length > 0) {
+      payload.file_ids = fileIds;
     }
 
     chatMutation.mutate(
@@ -117,12 +180,31 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
     );
   }, [isThinking, conversationId, selectedSkills, chatMutation, queryClient, navigate, onClose]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!canSend) return;
     const text = input.trim();
+    const filesToUpload = [...pendingFiles];
     setInput('');
+    setPendingFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    sendMessage(text);
+
+    let fileIds: string[] | undefined;
+    if (filesToUpload.length > 0) {
+      setIsUploading(true);
+      try {
+        const results = await Promise.all(filesToUpload.map((f) => uploadChatFile(f.file)));
+        fileIds = results.map((r) => r.file_id);
+      } catch {
+        alert('Failed to upload one or more files. Please try again.');
+        setPendingFiles(filesToUpload);
+        setInput(text);
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    }
+
+    sendMessage(text, fileIds);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -258,7 +340,44 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
         </MessagesArea>
 
         <InputArea>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.csv,.xlsx,.docx"
+            style={{ display: 'none' }}
+            onChange={handleFileSelect}
+          />
+          {pendingFiles.length > 0 && (
+            <FileChipsRow>
+              {pendingFiles.map((f, i) => (
+                <FileChip key={`${f.filename}-${i}`}>
+                  <FileChipName>{f.filename}</FileChipName>
+                  <FileChipRemove onClick={() => removeFile(f.filename)} title="Remove">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </FileChipRemove>
+                </FileChip>
+              ))}
+            </FileChipsRow>
+          )}
           <InputWrapper>
+            <AttachBtn
+              $uploading={isUploading}
+              onClick={() => !isUploading && fileInputRef.current?.click()}
+              title={isUploading ? 'Uploading...' : 'Attach file'}
+            >
+              {isUploading ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </AttachBtn>
             <Textarea
               ref={textareaRef}
               rows={1}
