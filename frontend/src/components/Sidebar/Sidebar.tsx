@@ -4,7 +4,7 @@ import { MOCK_NAV_BADGES } from '../../mockservice';
 import { useAppContext } from '../../contexts/AppContext';
 import { usePlans } from '../../actions/plans';
 import { NewPlanChatModal } from '../NewPlanChatModal/NewPlanChatModal';
-import { PanelIcon, ApprovalsIcon, DisputesIcon, WorkspacesIcon, SkillsIcon } from './Sidebar.helpers';
+import { PanelIcon, ApprovalsIcon, DisputesIcon, WorkspacesIcon, SkillsIcon, TemplatesIcon } from './Sidebar.helpers';
 import {
   SidebarContainer,
   ExpandedContent,
@@ -78,6 +78,10 @@ export function Sidebar() {
               <SkillsIcon />
               Skills
             </NavItem>
+            <NavItem onClick={() => navigate('/variable-compensation/plan-templates')}>
+              <TemplatesIcon />
+              Plan templates
+            </NavItem>
           </NavSection>
 
           <SectionTitle>Recent plans</SectionTitle>
@@ -131,6 +135,9 @@ export function Sidebar() {
           </CollapsedIconButton>
           <CollapsedIconButton title="Skills" onClick={() => navigate('/variable-compensation/skills')}>
             <SkillsIcon />
+          </CollapsedIconButton>
+          <CollapsedIconButton title="Plan Templates" onClick={() => navigate('/variable-compensation/plan-templates')}>
+            <TemplatesIcon />
           </CollapsedIconButton>
         </CollapsedContent>
       )}

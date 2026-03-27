@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import { useChat, useConversations, useConversation } from '../../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
+import { ClarificationCard } from '../ClarificationCard/ClarificationCard';
+import type { ClarificationQuestion } from '../../types';
 import type { DisplayMessage, ChatPanelProps } from './ChatPanel.types';
 import {
   Panel,
@@ -12,6 +14,7 @@ import {
   Textarea,
   SendBtn,
   EmptyChat,
+  ClarificationWrapper,
   ThinkingIndicator,
 } from './ChatPanel.styles';
 
@@ -20,6 +23,9 @@ export function ChatPanel({ planId }: ChatPanelProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [pendingQuestions, setPendingQuestions] = useState<ClarificationQuestion[] | null>(null);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [collectedAnswers, setCollectedAnswers] = useState<{ question: string; answer: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
@@ -53,7 +59,7 @@ export function ChatPanel({ planId }: ChatPanelProps) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isThinking]);
+  }, [messages, isThinking, pendingQuestions]);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -64,18 +70,16 @@ export function ChatPanel({ planId }: ChatPanelProps) {
 
   const canSend = input.trim().length > 0 && !isThinking;
 
-  const handleSend = () => {
-    if (!canSend) return;
+  const sendMessage = useCallback((text: string) => {
+    if (!text.trim() || isThinking) return;
 
-    const userMsg = input.trim();
-    setInput('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    setPendingMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
+    setPendingMessages((prev) => [...prev, { role: 'user', content: text }]);
     setIsThinking(true);
+    setPendingQuestions(null);
 
     chatMutation.mutate(
       {
-        message: userMsg,
+        message: text,
         conversation_id: conversationId,
       },
       {
@@ -86,6 +90,13 @@ export function ChatPanel({ planId }: ChatPanelProps) {
             { role: 'assistant', content: res.response },
           ]);
           setIsThinking(false);
+
+          if (res.pending_questions && res.pending_questions.length > 0) {
+            setPendingQuestions(res.pending_questions);
+            setQuestionIndex(0);
+            setCollectedAnswers([]);
+          }
+
           queryClient.invalidateQueries({ queryKey: ['plan', planId] });
           queryClient.invalidateQueries({ queryKey: ['conversations', planId] });
           queryClient.invalidateQueries({ queryKey: ['conversation', res.conversation_id] }).then(() => {
@@ -101,12 +112,65 @@ export function ChatPanel({ planId }: ChatPanelProps) {
         },
       },
     );
+  }, [isThinking, conversationId, chatMutation, queryClient, planId]);
+
+  const handleSend = () => {
+    if (!canSend) return;
+    const text = input.trim();
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    sendMessage(text);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  const submitAllAnswers = (answers: { question: string; answer: string }[]) => {
+    const grouped = answers
+      .filter((a) => a.answer !== 'skipped')
+      .map((a) => `${a.question}: ${a.answer}`)
+      .join('\n');
+    setPendingQuestions(null);
+    setCollectedAnswers([]);
+    sendMessage(grouped || 'skip all');
+  };
+
+  const handleClarificationAnswer = (answer: string) => {
+    const q = pendingQuestions?.[questionIndex];
+    const entry = { question: q?.question ?? '', answer };
+    const updated = [...collectedAnswers, entry];
+
+    if (pendingQuestions && questionIndex < pendingQuestions.length - 1) {
+      setCollectedAnswers(updated);
+      setQuestionIndex((i) => i + 1);
+    } else {
+      submitAllAnswers(updated);
+    }
+  };
+
+  const handleClarificationSkip = () => {
+    const q = pendingQuestions?.[questionIndex];
+    const entry = { question: q?.question ?? '', answer: 'skipped' };
+    const updated = [...collectedAnswers, entry];
+
+    if (pendingQuestions && questionIndex < pendingQuestions.length - 1) {
+      setCollectedAnswers(updated);
+      setQuestionIndex((i) => i + 1);
+    } else {
+      submitAllAnswers(updated);
+    }
+  };
+
+  const handleClarificationClose = () => {
+    if (collectedAnswers.length > 0) {
+      submitAllAnswers(collectedAnswers);
+    } else {
+      setPendingQuestions(null);
+      setCollectedAnswers([]);
     }
   };
 
@@ -131,6 +195,17 @@ export function ChatPanel({ planId }: ChatPanelProps) {
             <ThinkingIndicator>
               <span>.</span><span>.</span><span>.</span> Thinking
             </ThinkingIndicator>
+          )}
+          {pendingQuestions && !isThinking && (
+            <ClarificationWrapper>
+              <ClarificationCard
+                questions={pendingQuestions}
+                currentIndex={questionIndex}
+                onAnswer={handleClarificationAnswer}
+                onSkip={handleClarificationSkip}
+                onClose={handleClarificationClose}
+              />
+            </ClarificationWrapper>
           )}
           <div ref={messagesEndRef} />
         </MessagesArea>

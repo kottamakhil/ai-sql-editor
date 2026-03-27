@@ -134,6 +134,12 @@ export const EmptyChat = styled.div`
   font-size: 13px;
 `;
 
+export const ClarificationWrapper = styled.div`
+  align-self: flex-start;
+  width: 100%;
+  margin-bottom: 12px;
+`;
+
 export const ThinkingIndicator = styled.div`
   align-self: flex-start;
   padding: 10px 14px;

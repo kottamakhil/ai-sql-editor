@@ -35,6 +35,7 @@ export interface Plan {
   mode: string;
   artifacts: Artifact[];
   config: PlanConfig;
+  inferred_config?: string | null;
   skills?: PlanSkill[] | null;
 }
 
@@ -137,4 +138,10 @@ export interface PreviewResponse {
 
 export interface SchemaResponse {
   tables: string[];
+}
+
+export interface PlanTemplate {
+  template_id: string;
+  name: string;
+  content: string;
 }

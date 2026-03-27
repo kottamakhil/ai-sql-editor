@@ -11,6 +11,7 @@ import type {
   SchemaResponse,
   ExecutionResult,
   Skill,
+  PlanTemplate,
   Conversation,
   ConversationSummary,
 } from '../types';
@@ -79,6 +80,19 @@ export const createSkill = (data: { name: string; content: string }) =>
 
 export const updateSkill = (skillId: string, data: { name: string; content: string }) =>
   http<Skill>(`/skills/${skillId}`, { method: 'PUT', body: JSON.stringify(data) });
+
+// ---- Plan Templates ----
+
+export const fetchPlanTemplates = () => http<PlanTemplate[]>('/plan-templates');
+
+export const fetchPlanTemplate = (templateId: string) =>
+  http<PlanTemplate>(`/plan-templates/${templateId}`);
+
+export const createPlanTemplate = (data: { name: string; content: string }) =>
+  http<PlanTemplate>('/plan-templates', { method: 'POST', body: JSON.stringify(data) });
+
+export const updatePlanTemplate = (templateId: string, data: { name: string; content: string }) =>
+  http<PlanTemplate>(`/plan-templates/${templateId}`, { method: 'PUT', body: JSON.stringify(data) });
 
 // ---- Schema ----
 
@@ -169,3 +183,23 @@ export const useExecuteArtifact = (artifactId: string) =>
     queryFn: () => executeSql({ artifact_id: artifactId }),
     enabled: !!artifactId,
   });
+
+export const usePlanTemplates = () =>
+  useQuery({ queryKey: ['plan-templates'], queryFn: fetchPlanTemplates });
+
+export const useCreatePlanTemplate = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createPlanTemplate,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-templates'] }),
+  });
+};
+
+export const useUpdatePlanTemplate = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, data }: { templateId: string; data: { name: string; content: string } }) =>
+      updatePlanTemplate(templateId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-templates'] }),
+  });
+};
