@@ -10,6 +10,7 @@ import logging
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from executor import execute_artifact, execute_raw_sql
 from models import Plan, SqlArtifact
@@ -44,8 +45,8 @@ class SqlAlchemyPlanService(PlanServiceBase):
         config = PlanConfig(plan_id=plan.id)
         self._session.add(config)
         await self._session.commit()
-        await self._session.refresh(plan)
         self._plan = plan
+        plan = await self._reload_plan()
         log.info("Created plan %s: %s", plan.id, name)
         return self._plan_to_dict(plan)
 
@@ -55,15 +56,15 @@ class SqlAlchemyPlanService(PlanServiceBase):
             if hasattr(plan, key) and value is not None:
                 setattr(plan, key, value.strip() if isinstance(value, str) else value)
         await self._session.commit()
-        await self._session.refresh(plan)
+        plan = await self._reload_plan()
         log.info("Updated plan %s: %s", plan.id, list(fields.keys()))
         return self._plan_to_dict(plan)
 
     async def get_plan(self) -> dict | None:
         if not self._plan:
             return None
-        await self._session.refresh(self._plan)
-        return self._plan_to_dict(self._plan)
+        plan = await self._reload_plan()
+        return self._plan_to_dict(plan)
 
     async def replace_artifacts(self, specs: list[dict]) -> list[dict]:
         plan = self._require_plan()
@@ -122,6 +123,15 @@ class SqlAlchemyPlanService(PlanServiceBase):
             raise ValueError("No plan exists. Call create_plan first.")
         return self._plan
 
+    async def _reload_plan(self) -> Plan:
+        """Re-query the plan with config eagerly loaded to avoid lazy-load in async."""
+        plan = self._require_plan()
+        result = await self._session.execute(
+            select(Plan).options(selectinload(Plan.config)).where(Plan.id == plan.id)
+        )
+        self._plan = result.scalar_one()
+        return self._plan
+
     async def _load_artifacts(self) -> list[SqlArtifact]:
         plan = self._require_plan()
         result = await self._session.execute(
@@ -163,10 +173,9 @@ class SqlAlchemyPlanService(PlanServiceBase):
                         setattr(config, column_name, fields[field_key])
 
         await self._session.commit()
-        await self._session.refresh(config)
-        plan.config = config
+        plan = await self._reload_plan()
         log.info("Updated plan %s config: %s", plan.id, list(config_patch.keys()))
-        return config.to_dict()
+        return plan.config.to_dict() if plan.config else {}
 
     @staticmethod
     def _plan_to_dict(plan: Plan) -> dict:
