@@ -81,6 +81,31 @@ def _find_references(sql: str, named_artifacts: dict[str, SqlArtifact]) -> list[
     return [name for name in named_artifacts if name.lower() in tokens]
 
 
+def build_lineage_dag(artifacts: list[SqlArtifact]) -> dict:
+    """Build a DAG of artifact dependencies for FE visualization."""
+    named = {a.name: a for a in artifacts if a.name}
+    final = _find_final_artifact(artifacts) if artifacts else None
+
+    nodes = []
+    for a in artifacts:
+        nodes.append({
+            "id": a.name or a.id,
+            "name": a.name,
+            "sql": a.sql_expression,
+            "type": "payout" if a.name == "payout" else "cte",
+        })
+
+    edges = []
+    for a in artifacts:
+        if not a.name:
+            continue
+        refs = _find_references(a.sql_expression, named)
+        for ref_name in refs:
+            edges.append({"source": ref_name, "target": a.name})
+
+    return {"nodes": nodes, "edges": edges}
+
+
 def _build_cte_query(cte_artifacts: list[SqlArtifact], final_sql: str) -> str:
     if not cte_artifacts:
         return final_sql

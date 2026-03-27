@@ -10,7 +10,7 @@ from chat_service import ChatResult, process_chat
 from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
-from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
+from executor import ExecutionResult, build_lineage_dag, execute_artifact, execute_plan_preview, execute_raw_sql
 from models import ChatFile, Conversation, ConversationSkillVersion, Plan, PlanConfig, PlanTemplate, Skill, SkillVersion, SqlArtifact, default_config_dict
 
 log = logging.getLogger(__name__)
@@ -140,10 +140,28 @@ class MessageOut(BaseModel):
     content: str
 
 
+class LineageNode(BaseModel):
+    id: str
+    name: str | None
+    sql: str
+    type: str
+
+
+class LineageEdge(BaseModel):
+    source: str
+    target: str
+
+
+class LineageDAG(BaseModel):
+    nodes: list[LineageNode]
+    edges: list[LineageEdge]
+
+
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str
     composed_sql: str | None = None
+    lineage: LineageDAG | None = None
     tool_calls: list[ToolCallOut]
     current_artifacts: list[ArtifactOut]
     plan: PlanOut | None = None
@@ -178,6 +196,7 @@ class ConversationSummaryOut(BaseModel):
 class PreviewResponse(BaseModel):
     composed_sql: str
     result: ExecutionResult
+    lineage: LineageDAG | None = None
 
 
 # --- Helpers ---
@@ -596,7 +615,12 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
     composed_sql = _build_cte_query(deps, final.sql_expression)
 
     exec_result = await execute_plan_preview(artifacts, session)
-    return PreviewResponse(composed_sql=composed_sql, result=exec_result)
+    lineage_dag = build_lineage_dag(artifacts)
+    lineage = LineageDAG(
+        nodes=[LineageNode(**n) for n in lineage_dag["nodes"]],
+        edges=[LineageEdge(**e) for e in lineage_dag["edges"]],
+    )
+    return PreviewResponse(composed_sql=composed_sql, result=exec_result, lineage=lineage)
 
 
 # --- File Upload ---
@@ -686,10 +710,13 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
             conversation_id=result.conversation_id,
         )
 
+    lineage = _build_lineage_from_dicts(result.artifacts)
+
     return ChatResponse(
         response=result.response_text,
         conversation_id=result.conversation_id,
         composed_sql=result.composed_sql,
+        lineage=lineage,
         tool_calls=[
             ToolCallOut(
                 tool_name=tc.tool_name,
@@ -705,6 +732,37 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
         iterations=result.agent_result.iterations,
         pending_questions=_parse_questions(result.agent_result.pending_questions),
     )
+
+
+def _build_lineage_from_dicts(artifacts: list[dict]) -> LineageDAG | None:
+    """Build a lineage DAG from artifact dicts (name, sql)."""
+    if not artifacts:
+        return None
+    import re
+    named = {a["name"]: a for a in artifacts if a.get("name")}
+
+    nodes = [
+        LineageNode(
+            id=a.get("name") or a.get("artifact_id", ""),
+            name=a.get("name"),
+            sql=a.get("sql", ""),
+            type="payout" if a.get("name") == "payout" else "cte",
+        )
+        for a in artifacts
+    ]
+
+    edges = []
+    for a in artifacts:
+        name = a.get("name")
+        sql = a.get("sql", "")
+        if not name:
+            continue
+        tokens = set(re.findall(r"\b(\w+)\b", sql.lower()))
+        for ref_name in named:
+            if ref_name.lower() in tokens and ref_name != name:
+                edges.append(LineageEdge(source=ref_name, target=name))
+
+    return LineageDAG(nodes=nodes, edges=edges)
 
 
 def _parse_questions(raw: list[dict] | None) -> list[ClarificationQuestion] | None:
