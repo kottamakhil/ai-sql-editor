@@ -9,14 +9,33 @@ export const thinScrollbar = `
   scrollbar-color: #d1d5db transparent;
 `;
 
+export const PanelWrapper = styled.div`
+  display: flex;
+  height: 100%;
+  position: relative;
+`;
+
+export const ResizeHandle = styled.div`
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+
+  &:hover,
+  &.active {
+    background: #5b1647;
+  }
+`;
+
 export const Panel = styled.div`
-  width: 360px;
-  min-width: 360px;
+  flex: 1;
   border-left: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
   height: 100%;
   background: #fafafa;
+  min-width: 0;
 `;
 
 export const MessagesArea = styled.div`

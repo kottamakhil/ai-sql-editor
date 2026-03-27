@@ -6,6 +6,8 @@ import { ClarificationCard } from '../ClarificationCard/ClarificationCard';
 import type { ClarificationQuestion } from '../../types';
 import type { DisplayMessage, ChatPanelProps } from './ChatPanel.types';
 import {
+  PanelWrapper,
+  ResizeHandle,
   Panel,
   MessagesArea,
   MessageBubble,
@@ -18,6 +20,10 @@ import {
   ThinkingIndicator,
 } from './ChatPanel.styles';
 
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 800;
+const DEFAULT_WIDTH = 360;
+
 export function ChatPanel({ planId }: ChatPanelProps) {
   const [pendingMessages, setPendingMessages] = useState<DisplayMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -26,9 +32,39 @@ export function ChatPanel({ planId }: ChatPanelProps) {
   const [pendingQuestions, setPendingQuestions] = useState<ClarificationQuestion[] | null>(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [collectedAnswers, setCollectedAnswers] = useState<{ question: string; answer: string }[]>([]);
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_WIDTH);
+  const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      setPanelWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isDragging]);
 
   const chatMutation = useChat();
   const { data: conversations } = useConversations(planId);
@@ -175,59 +211,66 @@ export function ChatPanel({ planId }: ChatPanelProps) {
   };
 
   return (
-    <Panel>
-      {messages.length === 0 && !isThinking ? (
-        <EmptyChat>
-          Ask a question or request a change to start building your plan with AI.
-        </EmptyChat>
-      ) : (
-        <MessagesArea>
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} $role={msg.role}>
-              {msg.role === 'assistant' ? (
-                <Markdown>{msg.content}</Markdown>
-              ) : (
-                msg.content
-              )}
-            </MessageBubble>
-          ))}
-          {isThinking && (
-            <ThinkingIndicator>
-              <span>.</span><span>.</span><span>.</span> Thinking
-            </ThinkingIndicator>
-          )}
-          {pendingQuestions && !isThinking && (
-            <ClarificationWrapper>
-              <ClarificationCard
-                questions={pendingQuestions}
-                currentIndex={questionIndex}
-                onAnswer={handleClarificationAnswer}
-                onSkip={handleClarificationSkip}
-                onClose={handleClarificationClose}
-              />
-            </ClarificationWrapper>
-          )}
-          <div ref={messagesEndRef} />
-        </MessagesArea>
-      )}
+    <PanelWrapper style={{ width: panelWidth }}>
+      <ResizeHandle
+        ref={handleRef}
+        className={isDragging ? 'active' : ''}
+        onMouseDown={() => setIsDragging(true)}
+      />
+      <Panel>
+        {messages.length === 0 && !isThinking ? (
+          <EmptyChat>
+            Ask a question or request a change to start building your plan with AI.
+          </EmptyChat>
+        ) : (
+          <MessagesArea>
+            {messages.map((msg, i) => (
+              <MessageBubble key={i} $role={msg.role}>
+                {msg.role === 'assistant' ? (
+                  <Markdown>{msg.content}</Markdown>
+                ) : (
+                  msg.content
+                )}
+              </MessageBubble>
+            ))}
+            {isThinking && (
+              <ThinkingIndicator>
+                <span>.</span><span>.</span><span>.</span> Thinking
+              </ThinkingIndicator>
+            )}
+            {pendingQuestions && !isThinking && (
+              <ClarificationWrapper>
+                <ClarificationCard
+                  questions={pendingQuestions}
+                  currentIndex={questionIndex}
+                  onAnswer={handleClarificationAnswer}
+                  onSkip={handleClarificationSkip}
+                  onClose={handleClarificationClose}
+                />
+              </ClarificationWrapper>
+            )}
+            <div ref={messagesEndRef} />
+          </MessagesArea>
+        )}
 
-      <InputArea>
-        <InputWrapper>
-          <Textarea
-            ref={textareaRef}
-            rows={2}
-            value={input}
-            onChange={(e) => { setInput(e.target.value); autoResize(); }}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask a question or request a change..."
-          />
-          <SendBtn $active={canSend} onClick={handleSend} title="Send">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </SendBtn>
-        </InputWrapper>
-      </InputArea>
-    </Panel>
+        <InputArea>
+          <InputWrapper>
+            <Textarea
+              ref={textareaRef}
+              rows={2}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); autoResize(); }}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask a question or request a change..."
+            />
+            <SendBtn $active={canSend} onClick={handleSend} title="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </SendBtn>
+          </InputWrapper>
+        </InputArea>
+      </Panel>
+    </PanelWrapper>
   );
 }
