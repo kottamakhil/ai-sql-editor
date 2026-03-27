@@ -46,8 +46,64 @@ class Quota(Base):
     attainment_pct: Mapped[float] = mapped_column(Float, nullable=False)
 
 
-def _default_plan_config() -> dict:
-    """Default PlanConfig matching the production VCPlanConfig structure."""
+class Plan(Base):
+    __tablename__ = "plans"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    plan_type: Mapped[str] = mapped_column(String(20), nullable=False, default="RECURRING")
+    frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="QUARTERLY")
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="AI_ASSISTED")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    artifacts: Mapped[list["SqlArtifact"]] = relationship(
+        back_populates="plan", cascade="all, delete-orphan", order_by="SqlArtifact.created_at"
+    )
+    config: Mapped["PlanConfig | None"] = relationship(
+        back_populates="plan", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class PlanConfig(Base):
+    """1:1 plan configuration matching production PayoutConfig + VCPayrollConfig + DisputeConfig."""
+    __tablename__ = "plan_configs"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False, unique=True)
+
+    is_automatic_payout_enabled: Mapped[bool] = mapped_column(default=False)
+    final_payment_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_draws_enabled: Mapped[bool] = mapped_column(default=False)
+    draw_frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    payout_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    is_disputes_enabled: Mapped[bool] = mapped_column(default=True)
+
+    plan: Mapped["Plan"] = relationship(back_populates="config")
+
+    def to_dict(self) -> dict:
+        """Serialize to the nested dict structure matching the API response."""
+        return {
+            "payout": {
+                "is_automatic_payout_enabled": self.is_automatic_payout_enabled,
+                "final_payment_offset": self.final_payment_offset,
+                "is_draws_enabled": self.is_draws_enabled,
+                "draw_frequency": self.draw_frequency,
+            },
+            "payroll": {
+                "payout_type": self.payout_type,
+            },
+            "disputes": {
+                "is_disputes_enabled": self.is_disputes_enabled,
+            },
+        }
+
+
+def default_config_dict() -> dict:
+    """Default config values as a dict."""
     return {
         "payout": {
             "is_automatic_payout_enabled": False,
@@ -62,37 +118,6 @@ def _default_plan_config() -> dict:
             "is_disputes_enabled": True,
         },
     }
-
-
-class Plan(Base):
-    __tablename__ = "plans"
-
-    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    plan_type: Mapped[str] = mapped_column(String(20), nullable=False, default="RECURRING")
-    frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="QUARTERLY")
-    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="AI_ASSISTED")
-    config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
-    )
-
-    artifacts: Mapped[list["SqlArtifact"]] = relationship(
-        back_populates="plan", cascade="all, delete-orphan", order_by="SqlArtifact.created_at"
-    )
-
-    @property
-    def config(self) -> dict:
-        """Deserialize config_json, falling back to defaults."""
-        import json as _json
-        if self.config_json:
-            return _json.loads(self.config_json)
-        return _default_plan_config()
-
-    @config.setter
-    def config(self, value: dict) -> None:
-        import json as _json
-        self.config_json = _json.dumps(value)
 
 
 class SqlArtifact(Base):

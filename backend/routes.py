@@ -11,7 +11,7 @@ from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from models import Conversation, ConversationSkillVersion, Plan, Skill, SkillVersion, SqlArtifact
+from models import Conversation, ConversationSkillVersion, Plan, PlanConfig, Skill, SkillVersion, SqlArtifact, default_config_dict
 
 log = logging.getLogger(__name__)
 
@@ -211,11 +211,11 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
             for _, sv, skill in skills_result.all()
         ] or None
 
-    cfg = plan.config
+    cfg = plan.config.to_dict() if plan.config else default_config_dict()
     plan_config = PlanConfigOut(
-        payout=PayoutConfigOut(**cfg.get("payout", {})),
-        payroll=PayrollConfigOut(**cfg.get("payroll", {})),
-        disputes=DisputeConfigOut(**cfg.get("disputes", {})),
+        payout=PayoutConfigOut(**cfg["payout"]),
+        payroll=PayrollConfigOut(**cfg["payroll"]),
+        disputes=DisputeConfigOut(**cfg["disputes"]),
     )
 
     return PlanOut(
@@ -237,7 +237,7 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
 @router.get("/plans", response_model=list[PlanOut])
 async def list_plans(session: AsyncSession = Depends(get_db)):
     result = await session.execute(
-        select(Plan).options(selectinload(Plan.artifacts)).order_by(Plan.created_at.desc())
+        select(Plan).options(selectinload(Plan.artifacts), selectinload(Plan.config)).order_by(Plan.created_at.desc())
     )
     return [await _plan_to_out(p, session) for p in result.scalars()]
 
@@ -252,9 +252,13 @@ async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(ge
         mode="AI_ASSISTED",
     )
     session.add(plan)
+    await session.flush()
+
+    config = PlanConfig(plan_id=plan.id)
+    session.add(config)
+
     await session.commit()
-    await session.refresh(plan)
-    plan.artifacts = []
+    plan = await load_plan(plan.id, session)
     return await _plan_to_out(plan, session)
 
 

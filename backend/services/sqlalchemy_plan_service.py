@@ -30,17 +30,19 @@ class SqlAlchemyPlanService(PlanServiceBase):
     async def create_plan(
         self, name: str, plan_type: str = "RECURRING", frequency: str = "QUARTERLY"
     ) -> dict:
-        from models import _default_plan_config
-        import json as _json
+        from models import PlanConfig
 
         plan = Plan(
             name=name,
             plan_type=plan_type.upper(),
             frequency=frequency.upper(),
             mode="AI_ASSISTED",
-            config_json=_json.dumps(_default_plan_config()),
         )
         self._session.add(plan)
+        await self._session.flush()
+
+        config = PlanConfig(plan_id=plan.id)
+        self._session.add(config)
         await self._session.commit()
         await self._session.refresh(plan)
         self._plan = plan
@@ -130,21 +132,41 @@ class SqlAlchemyPlanService(PlanServiceBase):
         return list(result.scalars())
 
     async def update_plan_config(self, config_patch: dict) -> dict:
-        """Merge a partial config patch into the plan's config and persist."""
+        """Apply config fields from nested patch to the PlanConfig row."""
+        from models import PlanConfig, default_config_dict
+
         plan = self._require_plan()
-        current = plan.config
+        config = plan.config
+        if not config:
+            config = PlanConfig(plan_id=plan.id)
+            self._session.add(config)
+
+        field_map = {
+            "payout": {
+                "is_automatic_payout_enabled": "is_automatic_payout_enabled",
+                "final_payment_offset": "final_payment_offset",
+                "is_draws_enabled": "is_draws_enabled",
+                "draw_frequency": "draw_frequency",
+            },
+            "payroll": {
+                "payout_type": "payout_type",
+            },
+            "disputes": {
+                "is_disputes_enabled": "is_disputes_enabled",
+            },
+        }
 
         for section, fields in config_patch.items():
-            if section in current and isinstance(fields, dict):
-                current[section].update(fields)
-            else:
-                current[section] = fields
+            if section in field_map and isinstance(fields, dict):
+                for field_key, column_name in field_map[section].items():
+                    if field_key in fields:
+                        setattr(config, column_name, fields[field_key])
 
-        plan.config = current
         await self._session.commit()
-        await self._session.refresh(plan)
+        await self._session.refresh(config)
+        plan.config = config
         log.info("Updated plan %s config: %s", plan.id, list(config_patch.keys()))
-        return plan.config
+        return config.to_dict()
 
     @staticmethod
     def _plan_to_dict(plan: Plan) -> dict:
@@ -154,5 +176,5 @@ class SqlAlchemyPlanService(PlanServiceBase):
             "plan_type": plan.plan_type,
             "frequency": plan.frequency,
             "mode": plan.mode,
-            "config": plan.config,
+            "config": plan.config.to_dict() if plan.config else default_config_dict(),
         }
