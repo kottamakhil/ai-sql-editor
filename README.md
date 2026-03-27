@@ -2,21 +2,20 @@
 
 AI-powered SQL commission plan editor that decomposes complex queries into named CTE artifacts, executes them against PostgreSQL (Supabase), and iterates via natural language chat.
 
-Uses OpenAI tool calling with a multi-turn agent loop for self-healing SQL generation. The tool system is built on a portable service interface so the same tools and agent logic can be reused across storage backends (SQLAlchemy for the POC, Django+MongoDB for prod).
-
 ## Prerequisites
 
 - Python 3.11+
+- Node.js 18+
 - [`uv`](https://docs.astral.sh/uv/) package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - An OpenAI API key
 - A Supabase project (or any PostgreSQL database)
 
 ## Setup
 
-```bash
-git clone https://github.com/kottamakhil/ai-sql-editor.git
-cd ai-sql-editor/backend
+### Backend
 
+```bash
+cd backend
 uv sync
 
 export DATABASE_URL="postgresql+asyncpg://postgres:YOUR-PASSWORD@db.YOUR-PROJECT.supabase.co:5432/postgres"
@@ -30,16 +29,24 @@ uv run uvicorn main:app --reload --port 8000
 
 The server creates tables and seeds sample data on first run. Logs are emitted as structured JSON to stdout. If `DD_API_KEY` is set, logs are also shipped to Datadog.
 
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Opens at http://localhost:5173. The frontend talks to the backend at http://localhost:8000.
+
 ## Quick test
 
 ```bash
-# Run all 3 test suites (~30 tests)
+# Run all backend test suites (~30 tests, requires running server)
 cd backend && ./test_e2e.sh
 
-# Or run a single suite
-bash tests/test_infrastructure.sh   # Health, schema, seed, CRUD, skills
-bash tests/test_chat_agent.sh       # Session-based chat, all tools, multi-turn
-bash tests/test_clarification.sh    # Clarification questions, persistence
+# Or run Python tests
+cd backend && uv run pytest tests/ -v
 ```
 
 Or test individual endpoints:
@@ -49,7 +56,6 @@ Or test individual endpoints:
 curl -s -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Create a quarterly 10% commission plan on closed-won deals over $50k"}' | python -m json.tool
-# Response includes conversation_id and plan
 
 # Continue the conversation (multi-turn)
 curl -s -X POST http://localhost:8000/api/chat \
@@ -61,9 +67,6 @@ curl -s -X POST http://localhost:8000/api/chat \
 
 # Preview the full composed query
 curl -s http://localhost:8000/api/plans/<plan_id>/preview | python -m json.tool
-
-# View available table schemas
-curl -s http://localhost:8000/api/schema | python -m json.tool
 ```
 
 ## Documentation
