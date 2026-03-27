@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { usePlan } from '../../actions/plans';
-import { SummaryTab } from '../../components/SummaryTab';
+import { SummaryTab } from '../../components/SummaryTab/SummaryTab';
 import { ArtifactsTab } from '../../components/ArtifactsTab';
 import { ChatPanel } from '../../components/ChatPanel/ChatPanel';
 import type { TabId } from './PlanDetail.types';

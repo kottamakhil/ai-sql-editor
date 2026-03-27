@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import { useChat } from '../../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
-import { ClarificationCard } from '../ClarificationCard';
+import { ClarificationCard } from '../ClarificationCard/ClarificationCard';
 import type { ClarificationQuestion } from '../../types';
 import type { DisplayMessage, NewPlanChatModalProps } from './NewPlanChatModal.types';
 import {
