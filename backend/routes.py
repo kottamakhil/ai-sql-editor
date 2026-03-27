@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,7 @@ from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from models import Conversation, ConversationSkillVersion, Plan, PlanConfig, PlanTemplate, Skill, SkillVersion, SqlArtifact, default_config_dict
+from models import ChatFile, Conversation, ConversationSkillVersion, Plan, PlanConfig, PlanTemplate, Skill, SkillVersion, SqlArtifact, default_config_dict
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +131,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
     skill_ids: list[str] | None = None
+    file_ids: list[str] | None = None
 
 
 class MessageOut(BaseModel):
@@ -598,12 +599,65 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
     return PreviewResponse(composed_sql=composed_sql, result=exec_result)
 
 
+# --- File Upload ---
+
+
+ALLOWED_MIME_TYPES = {
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "application/pdf",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
+
+class ChatFileOut(BaseModel):
+    file_id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+
+
+@router.post("/chat/upload", response_model=ChatFileOut)
+async def upload_file(
+    file: UploadFile,
+    conversation_id: str | None = None,
+    session: AsyncSession = Depends(get_db),
+):
+    """Upload a file for use in chat. Returns a file_id to reference in /api/chat."""
+    if file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large (max {MAX_FILE_SIZE // 1024 // 1024}MB)")
+
+    chat_file = ChatFile(
+        conversation_id=conversation_id,
+        filename=file.filename or "unknown",
+        mime_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+        content=content,
+    )
+    session.add(chat_file)
+    await session.commit()
+    await session.refresh(chat_file)
+
+    return ChatFileOut(
+        file_id=chat_file.id,
+        filename=chat_file.filename,
+        mime_type=chat_file.mime_type,
+        size_bytes=chat_file.size_bytes,
+    )
+
+
 # --- Chat ---
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
-    result = await process_chat(req.message, req.conversation_id, session, skill_ids=req.skill_ids)
+    result = await process_chat(req.message, req.conversation_id, session, skill_ids=req.skill_ids, file_ids=req.file_ids)
     return _chat_result_to_response(result)
 
 

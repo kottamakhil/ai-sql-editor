@@ -41,6 +41,7 @@ async def process_chat(
     conversation_id: str | None,
     session: AsyncSession,
     skill_ids: list[str] | None = None,
+    file_ids: list[str] | None = None,
 ) -> ChatResult:
     """Run a full chat turn: load context, invoke agent, persist, return result."""
 
@@ -70,10 +71,12 @@ async def process_chat(
     )
     history = _load_history(conversation)
 
+    user_content = await _build_user_content(message, file_ids, session)
+
     messages = [
         {"role": "system", "content": system_prompt},
         *history,
-        {"role": "user", "content": message},
+        {"role": "user", "content": user_content},
     ]
 
     agent_result = await run_agent_loop(
@@ -174,6 +177,43 @@ async def _save_conversation_messages(
 
     if conversation.title is None:
         conversation.title = user_message[:120]
+
+
+async def _build_user_content(
+    message: str,
+    file_ids: list[str] | None,
+    session: AsyncSession,
+) -> str | list[dict]:
+    """Build the user message content -- plain text or multimodal with file attachments."""
+    if not file_ids:
+        return message
+
+    import base64
+    from models import ChatFile
+
+    parts: list[dict] = [{"type": "text", "text": message}]
+
+    for fid in file_ids:
+        result = await session.execute(select(ChatFile).where(ChatFile.id == fid))
+        chat_file = result.scalar_one_or_none()
+        if not chat_file:
+            continue
+
+        b64 = base64.b64encode(chat_file.content).decode("utf-8")
+        data_uri = f"data:{chat_file.mime_type};base64,{b64}"
+
+        if chat_file.mime_type.startswith("image/"):
+            parts.append({"type": "image_url", "image_url": {"url": data_uri}})
+        elif chat_file.mime_type == "application/pdf":
+            parts.append({"type": "file", "file": {"filename": chat_file.filename, "file_data": data_uri}})
+        elif chat_file.mime_type == "text/csv":
+            text_content = chat_file.content.decode("utf-8", errors="replace")
+            parts.append({"type": "text", "text": f"File: {chat_file.filename}\n```csv\n{text_content}\n```"})
+        else:
+            text_content = chat_file.content.decode("utf-8", errors="replace")
+            parts.append({"type": "text", "text": f"File: {chat_file.filename}\n{text_content}"})
+
+    return parts
 
 
 async def _load_active_template(session: AsyncSession) -> str | None:

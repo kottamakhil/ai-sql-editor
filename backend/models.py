@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 _MESSAGE_ROLE_MAX = 20
@@ -190,6 +190,23 @@ class SkillVersion(Base):
     )
 
     skill: Mapped["Skill"] = relationship(back_populates="versions")
+
+
+class ChatFile(Base):
+    """Uploaded file attached to a conversation for multimodal LLM input."""
+    __tablename__ = "chat_files"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    conversation_id: Mapped[str | None] = mapped_column(
+        String(12), ForeignKey("conversations.id"), nullable=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
 
 
 class Conversation(Base):
