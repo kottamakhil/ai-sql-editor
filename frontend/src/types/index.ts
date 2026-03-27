@@ -131,6 +131,23 @@ export interface ChatResponse {
   pending_questions: ClarificationQuestion[] | null;
 }
 
+export interface LineageNode {
+  id: string;
+  name: string | null;
+  sql: string;
+  type: string;
+}
+
+export interface LineageEdge {
+  source: string;
+  target: string;
+}
+
+export interface LineageDAG {
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+}
+
 export interface PreviewResponse {
   composed_sql: string;
   result: ExecutionResult;

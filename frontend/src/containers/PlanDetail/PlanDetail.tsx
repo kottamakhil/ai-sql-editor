@@ -5,6 +5,7 @@ import { SummaryTab } from '../../components/SummaryTab/SummaryTab';
 import { ArtifactsTab } from '../../components/ArtifactsTab/ArtifactsTab';
 import { PlanConfigTab } from '../../components/PlanConfigTab';
 import { PlanSkillsTab } from '../../components/PlanSkillsTab';
+import { LineageTab } from '../../components/LineageTab';
 import { ChatPanel } from '../../components/ChatPanel/ChatPanel';
 import type { TabId } from './PlanDetail.types';
 import {
@@ -54,6 +55,9 @@ export function PlanDetail() {
           <Tab $active={activeTab === 'skills'} onClick={() => setActiveTab('skills')}>
             Plan skills
           </Tab>
+          <Tab $active={activeTab === 'lineage'} onClick={() => setActiveTab('lineage')}>
+            Lineage
+          </Tab>
         </TabBar>
 
         <TabContent>
@@ -61,6 +65,7 @@ export function PlanDetail() {
           {activeTab === 'artifacts' && <ArtifactsTab artifacts={plan.artifacts} planId={planId!} />}
           {activeTab === 'config' && <PlanConfigTab plan={plan} planId={planId!} />}
           {activeTab === 'skills' && <PlanSkillsTab skills={plan.skills} />}
+          {activeTab === 'lineage' && <LineageTab planId={planId!} />}
         </TabContent>
       </MainContent>
 

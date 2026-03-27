@@ -14,6 +14,7 @@ import type {
   PlanTemplate,
   Conversation,
   ConversationSummary,
+  LineageDAG,
 } from '../types';
 
 const BASE = '/api';
@@ -70,6 +71,11 @@ export const executeSql = (data: { artifact_id?: string; sql_expression?: string
 
 export const fetchPreview = (planId: string) =>
   http<PreviewResponse>(`/plans/${planId}/preview`);
+
+// ---- Lineage ----
+
+export const fetchPlanLineage = (planId: string) =>
+  http<LineageDAG>(`/plans/${planId}/lineage`);
 
 // ---- Skills ----
 
@@ -182,6 +188,13 @@ export const useExecuteArtifact = (artifactId: string) =>
     queryKey: ['execute', artifactId],
     queryFn: () => executeSql({ artifact_id: artifactId }),
     enabled: !!artifactId,
+  });
+
+export const usePlanLineage = (planId: string) =>
+  useQuery({
+    queryKey: ['lineage', planId],
+    queryFn: () => fetchPlanLineage(planId),
+    enabled: !!planId,
   });
 
 export const usePlanTemplates = () =>

@@ -1,0 +1,1 @@
+export { LineageTab } from './LineageTab';
