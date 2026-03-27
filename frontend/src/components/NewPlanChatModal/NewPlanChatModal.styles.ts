@@ -182,6 +182,55 @@ export const Textarea = styled.textarea`
   &::placeholder { color: #9ca3af; }
 `;
 
+export const SkillPickerSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 16px;
+`;
+
+export const SkillPickerLabel = styled.span`
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+`;
+
+export const SkillChips = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+`;
+
+export const SkillChip = styled.button<{ $selected: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid ${(p) => (p.$selected ? '#5b1647' : '#d1d5db')};
+  background: ${(p) => (p.$selected ? '#5b1647' : '#fff')};
+  color: ${(p) => (p.$selected ? '#fff' : '#374151')};
+
+  &:hover {
+    border-color: ${(p) => (p.$selected ? '#4a1239' : '#9ca3af')};
+    background: ${(p) => (p.$selected ? '#4a1239' : '#f9fafb')};
+  }
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+`;
+
 export const SendBtn = styled.button<{ $active: boolean }>`
   width: 32px;
   height: 32px;

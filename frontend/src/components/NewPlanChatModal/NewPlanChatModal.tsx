@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
-import { useChat } from '../../actions/plans';
+import { useChat, useSkills } from '../../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClarificationCard } from '../ClarificationCard/ClarificationCard';
 import type { ClarificationQuestion } from '../../types';
@@ -21,14 +21,20 @@ import {
   InputWrapper,
   Textarea,
   SendBtn,
+  SkillPickerSection,
+  SkillPickerLabel,
+  SkillChips,
+  SkillChip,
 } from './NewPlanChatModal.styles';
 
 export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const chatMutation = useChat();
+  const { data: skills } = useSkills();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -50,6 +56,15 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, []);
 
+  const toggleSkill = (skillId: string) => {
+    setSelectedSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillId)) next.delete(skillId);
+      else next.add(skillId);
+      return next;
+    });
+  };
+
   const hasStarted = messages.length > 0 || isThinking;
   const canSend = input.trim().length > 0 && !isThinking;
 
@@ -60,8 +75,16 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
     setIsThinking(true);
     setPendingQuestions(null);
 
+    const payload: { message: string; conversation_id: string | null; skills?: string[] } = {
+      message: text,
+      conversation_id: conversationId,
+    };
+    if (!conversationId && selectedSkills.size > 0) {
+      payload.skills = Array.from(selectedSkills);
+    }
+
     chatMutation.mutate(
-      { message: text, conversation_id: conversationId },
+      payload,
       {
         onSuccess: (res) => {
           setConversationId(res.conversation_id);
@@ -92,7 +115,7 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
         },
       },
     );
-  }, [isThinking, conversationId, chatMutation, queryClient, navigate, onClose]);
+  }, [isThinking, conversationId, selectedSkills, chatMutation, queryClient, navigate, onClose]);
 
   const handleSend = () => {
     if (!canSend) return;
@@ -172,10 +195,35 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
 
         <MessagesArea>
           {!hasStarted && (
-            <WelcomeHint>
-              <h3>Describe your compensation plan</h3>
-              <p>Tell us about your plan and we'll help you build it with AI.</p>
-            </WelcomeHint>
+            <>
+              <WelcomeHint>
+                <h3>Describe your compensation plan</h3>
+                <p>Tell us about your plan and we'll help you build it with AI.</p>
+              </WelcomeHint>
+              {skills && skills.length > 0 && (
+                <SkillPickerSection>
+                  <SkillPickerLabel>Skills to include</SkillPickerLabel>
+                  <SkillChips>
+                    {skills.map((skill) => (
+                      <SkillChip
+                        key={skill.skill_id}
+                        $selected={selectedSkills.has(skill.skill_id)}
+                        onClick={() => toggleSkill(skill.skill_id)}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          {selectedSkills.has(skill.skill_id) ? (
+                            <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                          ) : (
+                            <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                          )}
+                        </svg>
+                        {skill.name}
+                      </SkillChip>
+                    ))}
+                  </SkillChips>
+                </SkillPickerSection>
+              )}
+            </>
           )}
 
           {messages.map((msg, i) => (
