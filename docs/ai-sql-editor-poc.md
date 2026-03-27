@@ -2,18 +2,20 @@
 
 ## Overview
 
-Build a Python FastAPI application that serves as an AI-powered SQL commission plan editor. The app has a split-panel UX: left side shows SQL artifacts (decomposed as named CTEs), right side is an AI chat. The AI generates SQL from natural language, decomposes complex queries into named CTE artifacts, persists them, executes them, and returns results.
+A Python FastAPI application that serves as an AI-powered SQL commission plan editor. The app has a split-panel UX: left side shows SQL artifacts (decomposed as named CTEs), right side is an AI chat. The AI generates SQL from natural language using OpenAI tool calling, decomposes complex queries into named CTE artifacts, persists them, executes them, and returns results.
+
+The chat is **session-based** — no plan is required to start chatting. The LLM creates plans via the `create_plan` tool when needed. Each conversation is linked to at most one plan.
 
 ---
 
 ## Core Concept: CTE-Based SQL Artifacts
 
-The LLM decomposes SQL into named artifacts that act as CTEs. Each artifact is either:
+The LLM decomposes SQL into named artifacts that act as CTEs:
 
-- **A named CTE** — has a `name` field (e.g. `base_deals`, `commissions`). Can be referenced by other artifacts by name.
-- **A standalone/final query** — has `name=null`. References named artifacts as if they were tables.
+- **Named CTEs** — have a `name` field (e.g. `base_deals`, `commissions`). Can be referenced by other artifacts by name.
+- **Final query** — always named `payout`. Assembles the result from the named CTEs.
 
-When executing an individual artifact, the backend resolves its dependencies (other artifacts it references by name) and wraps them as a `WITH` clause. When executing the full plan, the backend builds the complete CTE chain from the dependency graph.
+When executing an individual artifact, the backend resolves its dependencies and wraps them as a `WITH` clause. When executing the full plan, the backend builds the complete CTE chain from the dependency graph.
 
 ### Example
 
@@ -25,7 +27,7 @@ Artifact 2: name="commissions"
   sql: SELECT employee_id, SUM(deal_value * 0.10) AS commission
        FROM base_deals GROUP BY employee_id
 
-Artifact 3: name=null (final query)
+Artifact 3: name="payout"
   sql: SELECT e.name, c.commission
        FROM commissions c JOIN employees e ON e.id = c.employee_id
        ORDER BY c.commission DESC
@@ -41,7 +43,7 @@ SELECT employee_id, SUM(deal_value * 0.10) AS commission
 FROM base_deals GROUP BY employee_id
 ```
 
-**Executing the full plan (Artifact 3)** produces:
+**Executing the full plan (payout)** produces:
 
 ```sql
 WITH base_deals AS (
@@ -58,11 +60,9 @@ ORDER BY c.commission DESC
 
 ---
 
-## Data Layer (SQLite)
+## Data Layer (PostgreSQL / Supabase)
 
-On startup, create these sample tables with seed data:
-
-### Business tables (~20 rows each)
+### Business tables (~20 rows each, seeded on startup)
 
 ```sql
 employees (id, name, department, role, start_date)
@@ -75,32 +75,94 @@ quotas (id, employee_id, quarter, target_amount, attainment_pct)
 ```sql
 plans (id, name, plan_type, frequency, mode, created_at)
 -- plan_type: RECURRING | ONE_TIME
--- frequency: MONTHLY | QUARTERLY
--- mode: CLASSIC | AI_ASSISTED
+-- frequency: MONTHLY | QUARTERLY | ANNUALLY
+-- mode: AI_ASSISTED
 
 sql_artifacts (id, plan_id FK, name, sql_expression, created_at)
--- name: optional CTE alias (null for standalone/final queries)
+-- name: CTE alias (final artifact is always named "payout")
 
 skills (id, name, content, created_at)
+
+conversations (id, plan_id FK nullable, title, pending_questions_json, created_at)
+-- plan_id is nullable: conversations can exist before a plan is created
+
+conversation_messages (id, conversation_id FK, role, content, tool_call_id, tool_calls_json, created_at)
+-- role: user | assistant | tool
+-- tool_call_id: links tool response to the tool_call that triggered it
+-- tool_calls_json: serialized tool calls for assistant messages that invoke tools
 ```
+
+---
+
+## Architecture
+
+### Session-Based Chat
+
+The `/api/chat` endpoint only requires `message` and an optional `conversation_id`. No `plan_id` is needed. The conversation is the workspace — plans are outputs created by the LLM via tools.
+
+When a conversation is resumed, the backend loads the linked plan (if any) and its artifacts into the system prompt so the LLM always sees the latest state, including manual edits made via the left panel.
+
+### Agentic Tool Calling
+
+The chat endpoint runs a multi-turn agent loop using OpenAI's tool calling API:
+
+1. Build system prompt with current plan state, artifacts, skills, and table schemas
+2. Call OpenAI with tools defined
+3. If the LLM returns tool calls, execute each one via the tool registry
+4. Feed tool results back to the LLM
+5. Repeat until the LLM returns a text-only response (no more tool calls)
+6. Max 10 iterations as a safety bound
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `create_plan` | Create a new commission plan (name, type, frequency) |
+| `update_sql_artifacts` | Replace ALL SQL artifacts for the plan (delete-all, create-all, execute) |
+| `update_plan` | Update plan metadata (name, type, frequency) |
+| `execute_query` | Run a read-only SQL query for data exploration |
+| `validate_sql` | Check SQL correctness via EXPLAIN without side effects |
+| `ask_clarification` | Return structured questions when the request is ambiguous |
+
+### PlanService Interface (Portable Tools)
+
+Tools don't touch the database directly. They call methods on a `PlanServiceBase` abstract interface:
+
+```python
+class PlanServiceBase(ABC):
+    async def create_plan(self, name, plan_type, frequency) -> dict
+    async def update_plan(self, **fields) -> dict
+    async def get_plan(self) -> dict | None
+    async def replace_artifacts(self, specs: list[dict]) -> list[dict]
+    async def execute_sql(self, sql: str) -> dict
+    async def validate_sql(self, sql: str) -> dict
+```
+
+The POC implements this with `SqlAlchemyPlanService`. In production, swap with a Django+MongoDB implementation. The tools, agent loop, and LLM client are identical in both environments.
+
+### Clarification Flow
+
+When the user's request is vague, the LLM calls `ask_clarification` with structured questions and predefined options. The agent loop pauses, questions are persisted to `conversation.pending_questions_json`, and returned to the FE. On page refresh, `GET /api/conversations/{id}` includes `pending_questions` so the FE can restore the form. When the user answers, questions are cleared.
+
+### Artifact Replacement Strategy
+
+On each chat turn where the LLM produces SQL artifacts, the backend:
+
+1. Deletes all existing artifacts for the plan
+2. Creates all new artifacts from the LLM's response
+3. Executes each artifact and returns results
+
+This avoids relying on the LLM to manage artifact IDs or emit update/delete operations.
+
+### Conversation History
+
+Full tool call history (assistant + tool messages) is saved to the DB for audit/debugging. When loading history for the next LLM call, only user and final assistant messages are included (no tool call/response messages) to keep token usage low. The system prompt carries the current plan state.
 
 ---
 
 ## API Endpoints
 
-### Plan CRUD
-
-- `POST /api/plans` — create a plan (name, plan_type, frequency) with mode=AI_ASSISTED
-- `GET /api/plans/{plan_id}` — returns plan + all its sql_artifacts ordered by created_at
-- `PATCH /api/plans/{plan_id}` — update plan fields (name, plan_type, frequency)
-
-### Artifact CRUD (for left-panel editing)
-
-- `PATCH /api/artifacts/{artifact_id}` — update an artifact's `sql_expression` and/or `name` (user edits SQL directly on the left panel)
-- `DELETE /api/artifacts/{artifact_id}` — delete an artifact
-- `POST /api/plans/{plan_id}/artifacts` — create a new artifact `{ name, sql_expression }` (user adds a new CTE block manually)
-
-### Chat/Conversation
+### Chat (Primary Interaction)
 
 `POST /api/chat`
 
@@ -108,345 +170,163 @@ skills (id, name, content, created_at)
 
 ```json
 {
-  "plan_id": "plan_1",
-  "message": "Add a $50k minimum deal size to the commission query and remove the quota query",
-  "conversation_history": [
-    {"role": "user", "content": "Build me a 10% commission on closed deals"},
-    {"role": "assistant", "content": "Here's the commission query..."}
-  ]
+  "message": "Create a quarterly 10% commission plan on closed-won deals over $50k",
+  "conversation_id": "optional — omit to start a new conversation"
 }
 ```
-
-**Backend behavior:**
-
-1. Load the plan and its current sql_artifacts from the DB
-2. Load all skills
-3. Build the LLM prompt (see Prompt Structure below) — includes current artifacts with their names and IDs
-4. Call OpenAI (gpt-4o)
-5. Parse the response for `json:sql_operations` block
-6. Execute each operation (create/update/delete) against the DB
-7. For create and update operations, resolve dependencies and execute the SQL against SQLite
-8. Return the response with operations, results, and final artifact state
 
 **Response:**
 
 ```json
 {
-  "response": "I've broken down the commission calculation into steps and added a $50k filter...",
-  "operations": [
-    {
-      "action": "update",
-      "artifact_id": "art_1",
-      "name": "base_deals",
-      "sql_expression": "SELECT * FROM deals WHERE stage = 'Closed Won' AND deal_value >= 50000",
-      "result": {
-        "columns": ["id", "employee_id", "deal_value", "stage", "closed_date", "region"],
-        "rows": [["d1", "emp_1", 75000, "Closed Won", "2025-03-01", "NA"]],
-        "row_count": 8,
-        "error": null
-      }
-    },
-    {
-      "action": "delete",
-      "artifact_id": "art_2",
-      "result": null
-    },
-    {
-      "action": "create",
-      "artifact_id": "art_3",
-      "name": "commissions",
-      "sql_expression": "SELECT employee_id, SUM(deal_value * 0.10) AS commission FROM base_deals GROUP BY employee_id",
-      "result": {
-        "columns": ["employee_id", "commission"],
-        "rows": [["emp_1", 7500], ["emp_2", 5200]],
-        "row_count": 2,
-        "error": null
-      }
-    },
-    {
-      "action": "create",
-      "artifact_id": "art_4",
-      "name": null,
-      "sql_expression": "SELECT e.name, c.commission FROM commissions c JOIN employees e ON e.id = c.employee_id ORDER BY c.commission DESC",
-      "result": {
-        "columns": ["name", "commission"],
-        "rows": [["Alice", 7500], ["Bob", 5200]],
-        "row_count": 2,
-        "error": null
-      }
-    }
+  "response": "I've created a quarterly commission plan...\n\n```sql\nWITH base_deals AS (...) ...\n```",
+  "conversation_id": "conv_1",
+  "composed_sql": "WITH base_deals AS (...), commissions AS (...) SELECT ...",
+  "tool_calls": [
+    {"tool_name": "create_plan", "arguments": {"name": "Q1 Sales", ...}, "success": true, "result_data": {...}},
+    {"tool_name": "update_sql_artifacts", "arguments": {"artifacts": [...]}, "success": true, "result_data": {...}}
   ],
   "current_artifacts": [
-    {"artifact_id": "art_1", "name": "base_deals", "sql_expression": "SELECT * FROM deals WHERE ..."},
-    {"artifact_id": "art_3", "name": "commissions", "sql_expression": "SELECT employee_id, SUM(...) ..."},
-    {"artifact_id": "art_4", "name": null, "sql_expression": "SELECT e.name, c.commission ..."}
+    {"artifact_id": "art_1", "name": "base_deals", "sql_expression": "SELECT ..."},
+    {"artifact_id": "art_2", "name": "commissions", "sql_expression": "SELECT ..."},
+    {"artifact_id": "art_3", "name": "payout", "sql_expression": "SELECT ..."}
   ],
-  "conversation_history": [...]
+  "plan": {
+    "plan_id": "plan_1",
+    "name": "Q1 Sales",
+    "plan_type": "RECURRING",
+    "frequency": "QUARTERLY",
+    "mode": "AI_ASSISTED",
+    "conversation_id": "conv_1"
+  },
+  "iterations": 2,
+  "pending_questions": null
 }
 ```
 
-`current_artifacts` is the final state after all operations — the frontend replaces its artifact list with this on every chat response.
+### Plan CRUD
 
-### SQL Execution (standalone)
+- `GET /api/plans` — list all plans (includes `conversation_id`)
+- `POST /api/plans` — create a plan via REST (name, plan_type, frequency)
+- `GET /api/plans/{plan_id}` — plan with artifacts and `conversation_id`
+- `PATCH /api/plans/{plan_id}` — update plan fields
+
+### Artifact CRUD (Left Panel Editing)
+
+- `POST /api/plans/{plan_id}/artifacts` — create a new artifact
+- `PATCH /api/artifacts/{artifact_id}` — update SQL or name (user edits directly)
+- `DELETE /api/artifacts/{artifact_id}` — delete an artifact
+
+### SQL Execution
 
 `POST /api/execute`
 
-For re-running or editing an existing artifact from the left panel.
+- `{ "artifact_id": "art_1" }` — resolve dependencies, build WITH clause, execute
+- `{ "sql_expression": "SELECT ..." }` — execute raw SQL
 
-**Request:** `{ "artifact_id": "art_1" }` or `{ "sql_expression": "SELECT ..." }`
+### Plan Preview
 
-**Backend behavior:**
-- If `artifact_id` is provided, load the artifact, resolve its dependencies (other named artifacts it references), build the `WITH` clause, and execute
-- If raw `sql_expression` is provided, execute as-is
-
-**Response:**
-
-```json
-{
-  "columns": ["employee_id", "commission"],
-  "rows": [["emp_1", 5000], ["emp_2", 3200]],
-  "row_count": 2,
-  "error": null
-}
-```
+`GET /api/plans/{plan_id}/preview` — full composed CTE query + execution results
 
 ### Skills
 
-- `POST /api/skills` — create a skill `{ name, content }`
+- `POST /api/skills` — create a skill
 - `GET /api/skills` — list all skills
+- `GET /api/skills/{skill_id}` — get a skill
+- `PUT /api/skills/{skill_id}` — update a skill (full replace)
 
-### Schema Introspection
+### Schema
 
-- `GET /api/schema` — returns all table DDLs so the frontend can show available tables/columns
+- `GET /api/schema` — table DDLs for business tables
 
-### Plan Preview (full composed query)
+### Conversations
 
-- `GET /api/plans/{plan_id}/preview` — resolves the full dependency graph of all artifacts, builds the composed CTE query, executes it, and returns results
+- `GET /api/plans/{plan_id}/conversations` — list conversations for a plan
+- `GET /api/conversations/{conversation_id}` — messages + pending_questions
+- `DELETE /api/conversations/{conversation_id}` — delete a conversation
 
 ---
 
 ## Dependency Resolution and Execution Engine
 
-The backend needs a small execution engine that:
+The backend execution engine:
 
-1. **Parses artifact references** — given an artifact's SQL, find which artifact names appear as table references (simple approach: match against the set of known artifact names for the plan)
-2. **Builds dependency graph** — topological sort of artifacts by their references
+1. **Parses artifact references** — matches artifact names that appear as table references in SQL
+2. **Builds dependency graph** — topological sort by references
 3. **Wraps as CTEs for execution:**
-   - For individual artifact execution: `WITH dep1 AS (...), dep2 AS (...) <artifact sql>`
-   - For full plan execution: `WITH art1 AS (...), art2 AS (...), ... <final artifact sql>`
-4. **Detects cycles** — if artifact A references B and B references A, return an error
-
-### Example resolution
-
-```
-Artifacts:
-  base_deals (references: deals — a real table, no artifact dep)
-  commissions (references: base_deals — an artifact)
-  final (references: commissions, employees — commissions is artifact, employees is real table)
-
-Dependency graph:
-  final → commissions → base_deals
-
-Composed SQL for final:
-  WITH base_deals AS (...), commissions AS (...) SELECT ...
-```
+   - Individual: `WITH dep1 AS (...), dep2 AS (...) <artifact sql>`
+   - Full plan: `WITH art1 AS (...), art2 AS (...), ... <payout sql>`
+4. **Detects cycles** — returns an error if circular references exist
+5. **Finds final artifact** — looks for `name == "payout"`, falls back to last artifact
 
 ---
 
-## LLM Prompt Structure
+## LLM Integration
 
-```
-You are an AI SQL assistant for building commission plans.
+### System Prompt
 
-<available_tables>
-{DDL for employees, deals, quotas}
-</available_tables>
+The system prompt includes:
+- Available table DDLs
+- Skills content
+- Current plan state (or "No plan exists yet")
+- Current SQL artifacts
+- Guidelines for tool usage
 
-<skills>
-{content from all loaded skills}
-</skills>
+### Tool Calling (not regex parsing)
 
-<current_plan>
-Name: {plan.name}
-Type: {plan.plan_type}
-Frequency: {plan.frequency}
-</current_plan>
+The LLM communicates via OpenAI's structured tool calling API. No regex parsing of embedded JSON blocks. The LLM decides which tools to call and the backend executes them in a loop.
 
-<current_sql_artifacts>
-- artifact_id: "art_1", name: "base_deals", sql: "SELECT * FROM deals WHERE stage = 'Closed Won'"
-- artifact_id: "art_3", name: "commissions", sql: "SELECT employee_id, SUM(deal_value * 0.10) AS commission FROM base_deals GROUP BY employee_id"
-- artifact_id: "art_4", name: null, sql: "SELECT e.name, c.commission FROM commissions c JOIN employees e ON e.id = c.employee_id"
-</current_sql_artifacts>
+### Self-Healing
 
-When the user asks you to build or modify commission SQL:
-
-1. Return your explanation as plain text.
-2. Return SQL operations in a JSON block tagged as ```json:sql_operations.
-3. Each operation must be one of:
-   - {"action": "create", "name": "cte_name", "sql": "SELECT ..."} — new named CTE artifact
-   - {"action": "create", "sql": "SELECT ..."} — new standalone/final query (no name)
-   - {"action": "update", "artifact_id": "art_1", "sql": "SELECT ..."} — replace SQL on existing artifact
-   - {"action": "delete", "artifact_id": "art_2"} — remove an artifact
-
-4. Prefer decomposing complex queries into named CTE artifacts:
-   - Each CTE should have a descriptive name (e.g. "base_deals", "commissions", "quota_attainment")
-   - Named artifacts can reference other named artifacts by name as if they were tables
-   - The final artifact (name=null) assembles the result from the named CTEs
-   - Each CTE should be independently understandable
-
-5. Always reference artifact_id from <current_sql_artifacts> when updating or deleting.
-6. If the user edits SQL on the left panel and asks you to refine it, update that specific artifact by artifact_id.
-7. You may return multiple operations in one response.
-```
-
-### Example LLM Response
-
-```
-I've decomposed the commission calculation into three steps:
-1. **base_deals** filters for closed-won deals over $50k
-2. **commissions** calculates 10% commission per employee
-3. The final query joins with employee names for the report
-
-```json:sql_operations
-[
-  {
-    "action": "create",
-    "name": "base_deals",
-    "sql": "SELECT * FROM deals WHERE stage = 'Closed Won' AND deal_value >= 50000"
-  },
-  {
-    "action": "create",
-    "name": "commissions",
-    "sql": "SELECT employee_id, SUM(deal_value * 0.10) AS commission FROM base_deals GROUP BY employee_id"
-  },
-  {
-    "action": "create",
-    "sql": "SELECT e.name, c.commission FROM commissions c JOIN employees e ON e.id = c.employee_id ORDER BY c.commission DESC"
-  }
-]
-```
-```
-
----
-
-## Backend Operation Processing
-
-| Action | Backend behavior |
-|--------|-----------------|
-| `create` | Insert new `sql_artifact` row (with optional `name`), resolve dependencies, execute, return results + new `artifact_id` |
-| `update` | Load artifact by `artifact_id`, overwrite `sql_expression` (and optionally `name`), resolve dependencies, execute, return results |
-| `delete` | Hard-delete the artifact (POC), return null result |
-
-### Error Handling
-
-If the LLM returns a response where `json:sql_operations` is malformed (invalid JSON, missing required fields, references to nonexistent artifact_ids), return the raw LLM text as the `response` field with `operations: []` and `current_artifacts` unchanged. Let the user retry or refine their prompt. Do not crash the endpoint.
+If a tool returns an error (e.g., invalid SQL), the result is fed back to the LLM. The LLM can fix the issue and retry in the next iteration of the loop.
 
 ---
 
 ## Tech Stack
 
-- Python 3.11+, FastAPI, SQLite (via aiosqlite)
-- OpenAI SDK (gpt-4o)
+- Python 3.11+, FastAPI, PostgreSQL (Supabase) via asyncpg
+- OpenAI SDK (gpt-5.4) with tool calling
 - Pydantic models for all request/response schemas
 - SQLAlchemy async ORM
 - `uv` for dependency management
-- Single `main.py` or split into `models.py`, `routes.py`, `llm.py`, `executor.py`
-- Include a `README.md` with setup instructions
+- pytest + httpx for testing
+
+## Project Structure
+
+```
+ai-sql-editor/
+├── backend/
+│   ├── main.py              # FastAPI app entry point
+│   ├── agent.py             # Agent loop orchestrator, system prompt
+│   ├── chat_service.py      # Chat orchestration, persistence
+│   ├── llm.py               # OpenAI client
+│   ├── database.py          # Async SQLAlchemy engine
+│   ├── models.py            # ORM models
+│   ├── routes.py            # HTTP handlers (thin layer)
+│   ├── executor.py          # CTE resolution + SQL execution
+│   ├── seed.py              # Sample data
+│   ├── services/
+│   │   ├── plan_service.py          # PlanServiceBase ABC
+│   │   └── sqlalchemy_plan_service.py
+│   ├── tools/
+│   │   ├── base.py              # BaseTool, ToolContext, ToolResult
+│   │   ├── create_plan.py
+│   │   ├── update_sql_artifacts.py
+│   │   ├── update_plan.py
+│   │   ├── execute_query.py
+│   │   ├── validate_sql.py
+│   │   └── ask_clarification.py
+│   └── tests/
+├── frontend/                # React + TypeScript (Vite)
+├── docs/
+└── README.md
+```
 
 ## What to Skip for POC
 
 - Authentication/authorization
 - SQL injection protection beyond read-only execution mode
-- Frontend (API-only, test with curl/httpie)
 - Websockets (polling is fine)
 - Rate limiting
 - Multi-user/company isolation
 - Input validation beyond basic type checking
-- Cycle detection in dependency graph (trust the LLM for POC)
-
----
-
-## README.md (generate this file in the repo root)
-
-Generate a `README.md` that covers:
-
-### Project title and one-line description
-
-### Prerequisites
-
-- Python 3.11+
-- `uv` package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- An OpenAI API key
-
-### Setup
-
-```bash
-# Clone the repo
-git clone https://github.com/<org>/ai-sql-editor-poc.git
-cd ai-sql-editor-poc
-
-# Install dependencies
-uv sync
-
-# Set your OpenAI API key
-export OPENAI_API_KEY="sk-..."
-
-# Start the server (creates SQLite DB and seeds sample data on first run)
-uv run uvicorn main:app --reload --port 8000
-```
-
-### Quick test
-
-```bash
-# Create a plan
-curl -X POST http://localhost:8000/api/plans \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Q1 Sales Commission", "plan_type": "RECURRING", "frequency": "QUARTERLY"}'
-
-# Chat with the AI to generate SQL
-curl -X POST http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "plan_id": "<plan_id from above>",
-    "message": "Build a 10% commission on all closed-won deals over $50k",
-    "conversation_history": []
-  }'
-
-# Execute an artifact individually
-curl -X POST http://localhost:8000/api/execute \
-  -H "Content-Type: application/json" \
-  -d '{"artifact_id": "<artifact_id from chat response>"}'
-
-# Preview the full composed query
-curl http://localhost:8000/api/plans/<plan_id>/preview
-
-# Add a skill
-curl -X POST http://localhost:8000/api/skills \
-  -H "Content-Type: application/json" \
-  -d '{"name": "commission_rules", "content": "Always use deal_value for commission calculations. Exclude deals with stage = Disqualified."}'
-
-# View available table schemas
-curl http://localhost:8000/api/schema
-```
-
-### Project structure
-
-```
-ai-sql-editor-poc/
-├── main.py              # FastAPI app entry point
-├── models.py            # SQLAlchemy models (plans, sql_artifacts, skills)
-├── routes.py            # API endpoint handlers
-├── llm.py               # LLM prompt building and response parsing
-├── executor.py          # SQL execution engine with CTE dependency resolution
-├── seed.py              # Sample data seeding for employees, deals, quotas
-├── pyproject.toml       # Dependencies
-└── README.md
-```
-
-### Environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for gpt-4o |
-| `DATABASE_URL` | No | SQLite path (defaults to `sqlite+aiosqlite:///./poc.db`) |
-| `OPENAI_MODEL` | No | Model name (defaults to `gpt-4o`) |
