@@ -8,6 +8,7 @@ function planToConfig(plan: PlanConfigTabProps['plan']) {
     plan_type: plan.plan_type,
     frequency: plan.frequency,
     mode: plan.mode,
+    config: plan.config,
     artifacts: plan.artifacts.map((a) => ({
       name: a.name,
       sql_expression: a.sql_expression,

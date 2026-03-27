@@ -41,3 +41,7 @@ export const ValueCell = styled.div`
   font-size: 14px;
   color: #1a1a2e;
 `;
+
+export const SectionGap = styled.div`
+  height: 32px;
+`;

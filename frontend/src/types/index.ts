@@ -6,6 +6,27 @@ export interface PlanSkill {
   content: string;
 }
 
+export interface PayoutConfig {
+  is_automatic_payout_enabled: boolean;
+  final_payment_offset: number | null;
+  is_draws_enabled: boolean;
+  draw_frequency: string | null;
+}
+
+export interface PayrollConfig {
+  payout_type: string | null;
+}
+
+export interface DisputeConfig {
+  is_disputes_enabled: boolean;
+}
+
+export interface PlanConfig {
+  payout: PayoutConfig;
+  payroll: PayrollConfig;
+  disputes: DisputeConfig;
+}
+
 export interface Plan {
   plan_id: string;
   name: string;
@@ -13,6 +34,7 @@ export interface Plan {
   frequency: string;
   mode: string;
   artifacts: Artifact[];
+  config: PlanConfig;
   skills?: PlanSkill[] | null;
 }
 
