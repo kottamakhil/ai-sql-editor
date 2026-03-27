@@ -66,73 +66,10 @@ curl -s http://localhost:8000/api/plans/<plan_id>/preview | python -m json.tool
 curl -s http://localhost:8000/api/schema | python -m json.tool
 ```
 
-## Architecture
+## Documentation
 
-### Session-based chat
-
-The `/api/chat` endpoint only requires `message` and an optional `conversation_id`. No `plan_id` is needed. The conversation is the workspace — plans are outputs created by the LLM via the `create_plan` tool, not inputs required to start chatting.
-
-### Agent tool loop
-
-The chat endpoint runs an agentic tool-calling loop. The LLM receives tools and decides which to call. The backend executes them and feeds results back. The loop continues until the LLM has no more tool calls (max 10 iterations).
-
-### Available tools
-
-| Tool | Description |
-|------|-------------|
-| `create_plan` | Create a new commission plan |
-| `update_sql_artifacts` | Replace all SQL artifacts for the plan (delete-all, create-all, execute) |
-| `update_plan` | Update plan metadata (name, type, frequency) |
-| `execute_query` | Run a read-only SQL query for data exploration |
-| `validate_sql` | Check SQL correctness via EXPLAIN without side effects |
-| `ask_clarification` | Return structured questions when the request is ambiguous |
-
-### Clarification flow
-
-When the user's request is vague (e.g., "build a commission plan"), the LLM calls `ask_clarification` with structured questions and predefined options. The agent loop pauses, questions are persisted to the DB, and returned to the FE as a form. On page refresh, `GET /api/conversations/{id}` includes `pending_questions` so the FE can restore the form.
-
-## Project structure
-
-```
-ai-sql-editor/
-├── backend/
-│   ├── main.py              # FastAPI app entry point, lifespan hooks
-│   ├── agent.py             # Agent loop orchestrator, system prompt builder
-│   ├── chat_service.py      # Chat orchestration (message building, persistence)
-│   ├── llm.py               # OpenAI client (call_openai_with_tools)
-│   ├── logging_config.py    # JSON formatter + Datadog log handler
-│   ├── middleware.py        # Request ID middleware (X-Request-ID)
-│   ├── database.py          # Async SQLAlchemy engine, session factory
-│   ├── models.py            # SQLAlchemy ORM models
-│   ├── routes.py            # HTTP endpoint handlers (thin layer)
-│   ├── executor.py          # CTE dependency resolution + SQL execution
-│   ├── seed.py              # Sample data seeding
-│   ├── services/
-│   │   ├── plan_service.py          # PlanServiceBase ABC (portable interface)
-│   │   └── sqlalchemy_plan_service.py  # SQLAlchemy implementation
-│   ├── tools/
-│   │   ├── base.py              # BaseTool, ToolContext, ToolResult (portable)
-│   │   ├── __init__.py          # ToolRegistry with auto-registration
-│   │   ├── create_plan.py
-│   │   ├── update_sql_artifacts.py
-│   │   ├── update_plan.py
-│   │   ├── execute_query.py
-│   │   ├── validate_sql.py
-│   │   └── ask_clarification.py
-│   ├── tests/
-│   │   ├── helpers.sh               # Shared test utilities
-│   │   ├── test_infrastructure.sh   # Health, schema, seed, CRUD, skills
-│   │   ├── test_chat_agent.sh       # Session-based chat, tools, multi-turn
-│   │   └── test_clarification.sh    # Clarification questions, persistence
-│   ├── test_e2e.sh          # Test runner (runs all suites)
-│   └── pyproject.toml       # Dependencies (managed by uv)
-├── frontend/                # React + TypeScript (Vite)
-├── docs/
-│   ├── ai-sql-editor-poc.md # Full POC specification
-│   └── ARCHITECTURE.md      # Implementation plan
-├── Backlog.md
-└── README.md
-```
+- [Product spec](docs/ai-sql-editor-poc.md) — user flows, capabilities, data model
+- [Architecture](docs/ARCHITECTURE.md) — system design, tool protocol, design decisions
 
 ## API endpoints
 

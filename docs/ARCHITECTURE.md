@@ -1,179 +1,122 @@
-# Architecture and Implementation Plan
+# Architecture & Technical Design
 
-## Overview
+> For product behavior and requirements, see [ai-sql-editor-poc.md](ai-sql-editor-poc.md).
+> For setup and API reference, see [README.md](../README.md).
 
-A standalone FastAPI + SQLite application that serves as an AI-powered SQL commission plan editor. The LLM decomposes complex SQL into named CTE artifacts, persists them, resolves dependencies, executes them, and returns results. See [ai-sql-editor-poc.md](ai-sql-editor-poc.md) for the full specification.
-
----
-
-## System Architecture
+## System Overview
 
 ```
-                    ┌──────────────────────────────────────────────┐
-                    │              FastAPI (routes.py)              │
-                    │                                              │
-                    │  Plan CRUD  │ Artifact CRUD │ Skills │ Schema│
-                    │             │               │        │       │
-                    │         POST /api/chat (orchestrator)         │
-                    │         POST /api/execute                     │
-                    │         GET  /api/plans/{id}/preview          │
-                    └────────┬──────────────┬──────────────────────┘
-                             │              │
-                    ┌────────▼────────┐  ┌──▼───────────────────┐
-                    │   llm.py        │  │   executor.py        │
-                    │                 │  │                      │
-                    │ Prompt builder  │  │ Dependency resolver  │
-                    │ Response parser │  │ CTE composer         │
-                    │ OpenAI caller   │  │ SQL runner           │
-                    └────────┬────────┘  └──────────┬───────────┘
-                             │                      │
-                    ┌────────▼──────────────────────▼───────────┐
-                    │          SQLite (via aiosqlite)            │
-                    │                                           │
-                    │  Business: employees, deals, quotas       │
-                    │  App:      plans, sql_artifacts, skills   │
-                    └───────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    FastAPI (routes.py)                    │
+│   Plan CRUD │ Artifact CRUD │ Skills │ Schema │ Execute  │
+│                    POST /api/chat                         │
+└──────────┬────────────────────────────────────────────────┘
+           │
+     ┌─────▼──────┐     ┌──────────────┐
+     │ chat_service│────▶│   agent.py    │ ◄── tool loop
+     └─────┬──────┘     │  (max 10 iter)│
+           │            └──────┬───────┘
+           │                   │
+     ┌─────▼──────┐     ┌─────▼────────────────────────┐
+     │ PostgreSQL  │     │  tools/ (via PlanServiceBase) │
+     │ (Supabase)  │     │  create_plan                  │
+     │             │◄────│  update_sql_artifacts          │
+     │ plans       │     │  update_plan                   │
+     │ artifacts   │     │  execute_query                 │
+     │ conversations│    │  validate_sql                  │
+     │ messages    │     │  ask_clarification             │
+     └────────────┘     └──────────────────────────────┘
 ```
-
----
-
-## Implementation Steps
-
-Each step is a self-contained commit.
-
-### Step 1: Project scaffold + dependency management
-
-Create the project skeleton.
-
-**Files:**
-- `pyproject.toml` — deps: fastapi, uvicorn, sqlalchemy[asyncio], aiosqlite, openai, pydantic, pydantic-settings
-- `.gitignore` — `*.db`, `__pycache__/`, `.venv/`, `.env`
-- `.python-version` — `3.11`
-
-### Step 2: SQLAlchemy models + database setup
-
-**`database.py`** — async engine, session factory, `init_db()`, `get_db()` FastAPI dependency.
-
-**`models.py`** — all 6 tables:
-
-| Table | Key columns |
-|-------|-------------|
-| `employees` | id, name, department, role, start_date |
-| `deals` | id, employee_id, deal_value, stage, closed_date, region |
-| `quotas` | id, employee_id, quarter, target_amount, attainment_pct |
-| `plans` | id, name, plan_type, frequency, mode, created_at |
-| `sql_artifacts` | id, plan_id (FK), name (nullable), sql_expression, created_at |
-| `skills` | id, name, content, created_at |
-
-### Step 3: Seed data
-
-**`seed.py`** — ~20 rows each for employees, deals, quotas. Idempotent (skip if rows exist). Called from startup event.
-
-### Step 4: CTE dependency resolution + SQL execution engine
-
-**`executor.py`** — the core algorithmic piece.
-
-Public functions:
-1. `execute_artifact(artifact_id, session)` — resolve dependencies, build WITH clause, execute
-2. `execute_raw_sql(sql, session)` — execute arbitrary SQL directly
-3. `execute_plan_preview(plan_id, session)` — topological sort all artifacts, compose full CTE chain, execute
-
-Internal helpers:
-- `find_artifact_dependencies(sql, known_names)` — set intersection of SQL tokens with known artifact names
-- `topological_sort(artifacts)` — DFS topo-sort with cycle detection
-- `build_cte_query(ordered_artifacts, final_sql)` — assemble `WITH a AS (...), b AS (...) <final>`
-
-### Step 5: LLM prompt builder + response parser
-
-**`llm.py`**
-
-1. `build_chat_prompt(plan, artifacts, skills, schema_ddls)` — constructs system prompt with `<available_tables>`, `<skills>`, `<current_plan>`, `<current_sql_artifacts>`
-2. `parse_sql_operations(response_text)` — regex extraction of `` ```json:sql_operations `` block, returns `list[SqlOperation]`, empty list on failure
-3. `call_openai(messages)` — thin wrapper, model from `OPENAI_MODEL` env var
-
-### Step 6: API routes — Plan CRUD, Artifact CRUD, Skills, Schema
-
-**`routes.py`**
-
-| Endpoint | Description |
-|----------|-------------|
-| `POST /api/plans` | Create plan (mode=AI_ASSISTED) |
-| `GET /api/plans/{id}` | Get plan + artifacts |
-| `PATCH /api/plans/{id}` | Update plan fields |
-| `PATCH /api/artifacts/{id}` | Update artifact SQL/name |
-| `DELETE /api/artifacts/{id}` | Delete artifact |
-| `POST /api/plans/{id}/artifacts` | Create artifact manually |
-| `POST /api/skills` | Create skill |
-| `GET /api/skills` | List skills |
-| `GET /api/schema` | Table DDLs |
-| `POST /api/execute` | Execute artifact or raw SQL |
-| `GET /api/plans/{id}/preview` | Full plan preview |
-
-### Step 7: Chat endpoint — the orchestration layer
-
-`POST /api/chat` in `routes.py`:
-
-1. Load plan + artifacts from DB
-2. Load all skills
-3. Get schema DDLs
-4. Build LLM prompt
-5. Call OpenAI with conversation history
-6. Parse `json:sql_operations`
-7. Execute each operation (create/update/delete) + run SQL
-8. Re-query artifacts for final state
-9. Return ChatResponse
-
-Error handling: malformed LLM output returns raw text with `operations=[]`.
-
-### Step 8: Application entry point + README
-
-**`main.py`** — FastAPI app, CORS middleware, startup event (init_db + seed), include router.
-
-**`README.md`** — setup instructions, curl examples, project structure, env vars.
-
----
-
-## Project Structure
-
-```
-ai-sql-editor-poc/
-├── main.py              # FastAPI app entry point
-├── database.py          # Async engine, session factory, init_db()
-├── models.py            # SQLAlchemy models (all 6 tables)
-├── routes.py            # All API endpoints including /chat
-├── llm.py               # Prompt builder, response parser, OpenAI call
-├── executor.py          # CTE dependency resolution + SQL runner
-├── seed.py              # Business table seed data
-├── pyproject.toml       # uv dependencies
-├── .gitignore
-├── .python-version
-├── Backlog.md           # Implementation tracking
-├── docs/
-│   ├── ai-sql-editor-poc.md   # Full POC specification
-│   └── ARCHITECTURE.md        # This file
-└── README.md
-```
-
----
 
 ## Key Design Decisions
 
-1. **`database.py` separate from `models.py`** — avoids circular imports between engine/session factory and table definitions.
+### 1. Session-based chat (conversation-first)
 
-2. **Simple string-matching for dependency resolution** — tokenize SQL, intersect with known artifact names. No SQL parser needed for POC.
+`Conversation.plan_id` is nullable. Users start chatting without a plan. The LLM creates one via the `create_plan` tool. This avoids the chicken-and-egg problem of requiring a plan before the AI can help.
 
-3. **Topological sort for CTE ordering** — gives correct ordering and free cycle detection.
+### 2. PlanService interface (portable tools)
 
-4. **`json:sql_operations` parsing via regex** — extract fenced code block with the specific tag, `json.loads`. Graceful fallback on failure.
+Tools call `context.plan_service.method()` — never the database directly.
 
-5. **Single execution engine** — chat endpoint, execute endpoint, and preview endpoint all route through `executor.py`.
+```python
+class PlanServiceBase(ABC):
+    async def create_plan(name, plan_type, frequency) -> dict
+    async def update_plan(**fields) -> dict
+    async def get_plan() -> dict | None
+    async def replace_artifacts(specs) -> list[dict]
+    async def execute_sql(sql) -> dict
+    async def validate_sql(sql) -> dict
+```
 
----
+The POC implements this with `SqlAlchemyPlanService`. In production, swap with Django+MongoDB. Tools, agent loop, and LLM client are identical in both.
+
+### 3. Tool calling over regex parsing
+
+Uses OpenAI's structured tool calling API instead of embedding JSON in the LLM's text response. The LLM decides which tools to call; the backend dispatches via a registry.
+
+### 4. Delete-all + create-all artifact strategy
+
+On each chat turn with SQL changes, all existing artifacts are deleted and recreated from scratch. The LLM always provides the complete set. This avoids relying on the LLM to manage artifact IDs or emit incremental updates.
+
+### 5. Simple CTE dependency resolution
+
+Tokenize SQL, intersect with known artifact names. Topological sort for ordering. No SQL parser needed.
+
+## Agent Loop
+
+```
+User message
+  → Build system prompt with current state
+  → Call OpenAI with tools
+  → If tool_calls: execute each, feed results back, loop
+  → If ask_clarification: pause, persist questions, return
+  → If no tool_calls: return final response
+  → Max 10 iterations
+```
+
+Self-healing: if a tool returns an error (e.g., bad SQL), the result is fed back. The LLM fixes and retries.
+
+## Tool Registry
+
+Tools implement `BaseTool` (ABC with `name`, `description`, `parameters_schema`, `execute`). Registered at import time in `tools/__init__.py`. The agent loop discovers them via `registry.openai_tool_definitions()`.
+
+Adding a new tool: create a file in `tools/`, implement `BaseTool`, register in `__init__.py`. No changes to the agent loop or routes.
+
+## CTE Execution Engine (`executor.py`)
+
+1. **`execute_artifact`** — resolve deps, build WITH clause, run
+2. **`execute_raw_sql`** — run arbitrary SQL
+3. **`execute_plan_preview`** — topological sort all artifacts, compose full CTE chain, run
+4. **`_find_final_artifact`** — looks for `name == "payout"`, fallback to last
+5. **`_resolve_dependencies`** — DFS with cycle detection
+6. **`_run_sql`** — wrapped in `begin_nested()` (SAVEPOINT) so failures don't poison the transaction
+
+## Observability
+
+- **Structured JSON logging** — every log line: `{timestamp, level, logger, message, request_id}`
+- **Request ID middleware** — UUID per request in `contextvars.ContextVar`, `X-Request-ID` header
+- **Datadog integration** — optional log shipping via `datadog-api-client` when `DD_API_KEY` is set
+
+## Data Model
+
+```sql
+plans (id, name, plan_type, frequency, mode, created_at)
+
+sql_artifacts (id, plan_id FK, name, sql_expression, created_at)
+
+skills (id, name, content, created_at)
+
+conversations (id, plan_id FK nullable, title, pending_questions_json, created_at)
+
+conversation_messages (id, conversation_id FK, role, content,
+                       tool_call_id, tool_calls_json, created_at)
+```
 
 ## Tech Stack
 
-- Python 3.11+, FastAPI, SQLite (via aiosqlite)
-- OpenAI SDK (gpt-4o)
-- Pydantic for request/response schemas
-- SQLAlchemy async ORM
+- Python 3.11+, FastAPI, PostgreSQL (Supabase) via asyncpg
+- OpenAI SDK (gpt-5.4) with tool calling
+- SQLAlchemy async ORM, Pydantic
+- Structured JSON logging + optional Datadog via datadog-api-client
 - `uv` for dependency management
+- pytest + httpx for testing
