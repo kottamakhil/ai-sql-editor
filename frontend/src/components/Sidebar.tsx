@@ -13,7 +13,7 @@ const SidebarContainer = styled.aside<{ $open: boolean }>`
   border-right: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: calc(100vh - 48px);
   overflow: hidden;
   transition: width 0.2s ease, min-width 0.2s ease;
 `;
@@ -23,6 +23,7 @@ const ExpandedContent = styled.div`
   flex-direction: column;
   height: 100%;
   min-width: 260px;
+  overflow: hidden;
 `;
 
 const CollapsedContent = styled.div`
@@ -62,6 +63,7 @@ const SidebarTop = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex-shrink: 0;
 `;
 
 const NewPlanRow = styled.div`
@@ -150,6 +152,7 @@ const SearchInput = styled.div`
 const NavSection = styled.div`
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
 `;
 
 const NavItem = styled.button`
@@ -194,13 +197,13 @@ const SectionTitle = styled.div`
   font-weight: 500;
   color: #6b7280;
   text-transform: capitalize;
+  flex-shrink: 0;
 `;
 
 const PlansList = styled.div`
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
 `;
 
 const PlanItem = styled.button<{ $active?: boolean }>`
@@ -227,7 +230,7 @@ const PlanItem = styled.button<{ $active?: boolean }>`
 const SidebarFooter = styled.div`
   border-top: 1px solid #e5e7eb;
   padding: 8px 0;
-  margin-top: auto;
+  flex-shrink: 0;
 `;
 
 const FooterItem = styled.button`

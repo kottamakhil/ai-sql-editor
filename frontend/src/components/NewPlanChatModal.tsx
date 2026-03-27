@@ -225,6 +225,7 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const [isThinking, setIsThinking] = useState(false);
   const [pendingQuestions, setPendingQuestions] = useState<ClarificationQuestion[] | null>(null);
   const [questionIndex, setQuestionIndex] = useState(0);
+  const [collectedAnswers, setCollectedAnswers] = useState<{ question: string; answer: string }[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -264,6 +265,7 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
           if (res.pending_questions && res.pending_questions.length > 0) {
             setPendingQuestions(res.pending_questions);
             setQuestionIndex(0);
+            setCollectedAnswers([]);
           }
 
           if (res.plan) {
@@ -298,30 +300,49 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
     }
   };
 
+  const submitAllAnswers = (answers: { question: string; answer: string }[]) => {
+    const grouped = answers
+      .filter((a) => a.answer !== 'skipped')
+      .map((a) => `${a.question}: ${a.answer}`)
+      .join('\n');
+    setPendingQuestions(null);
+    setCollectedAnswers([]);
+    sendMessage(grouped || 'skip all');
+  };
+
   const handleClarificationAnswer = (answer: string) => {
     const q = pendingQuestions?.[questionIndex];
-    const fullAnswer = q ? `${q.question}: ${answer}` : answer;
+    const entry = { question: q?.question ?? '', answer };
+    const updated = [...collectedAnswers, entry];
 
     if (pendingQuestions && questionIndex < pendingQuestions.length - 1) {
-      setMessages((prev) => [...prev, { role: 'user', content: answer }]);
+      setCollectedAnswers(updated);
       setQuestionIndex((i) => i + 1);
     } else {
-      setPendingQuestions(null);
-      sendMessage(fullAnswer);
+      submitAllAnswers(updated);
     }
   };
 
   const handleClarificationSkip = () => {
+    const q = pendingQuestions?.[questionIndex];
+    const entry = { question: q?.question ?? '', answer: 'skipped' };
+    const updated = [...collectedAnswers, entry];
+
     if (pendingQuestions && questionIndex < pendingQuestions.length - 1) {
+      setCollectedAnswers(updated);
       setQuestionIndex((i) => i + 1);
     } else {
-      setPendingQuestions(null);
-      sendMessage('skip');
+      submitAllAnswers(updated);
     }
   };
 
   const handleClarificationClose = () => {
-    setPendingQuestions(null);
+    if (collectedAnswers.length > 0) {
+      submitAllAnswers(collectedAnswers);
+    } else {
+      setPendingQuestions(null);
+      setCollectedAnswers([]);
+    }
   };
 
   const handleOverlayClick = (e: React.MouseEvent) => {
