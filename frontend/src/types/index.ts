@@ -63,27 +63,39 @@ export interface ExecutionResult {
   error?: string | null;
 }
 
-export interface OperationResult {
-  action: string;
-  artifact_id?: string | null;
-  name?: string | null;
-  sql_expression?: string | null;
-  result?: ExecutionResult | null;
+export interface ClarificationOption {
+  value: string;
+  label: string;
+}
+
+export interface ClarificationQuestion {
+  id: string;
+  question: string;
+  options: ClarificationOption[];
+  allow_multiple?: boolean;
+  allow_freetext?: boolean;
+}
+
+export interface ToolCallOut {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  result: unknown;
 }
 
 export interface ChatRequest {
-  plan_id: string;
   message: string;
   conversation_id?: string | null;
-  conversation_history?: Array<{ role: string; content: string }>;
 }
 
 export interface ChatResponse {
   response: string;
   conversation_id: string;
-  operations: OperationResult[];
+  composed_sql: string | null;
+  tool_calls: ToolCallOut[];
   current_artifacts: Artifact[];
-  conversation_history: Array<{ role: string; content: string }>;
+  plan: Plan | null;
+  iterations: number;
+  pending_questions: ClarificationQuestion[] | null;
 }
 
 export interface PreviewResponse {

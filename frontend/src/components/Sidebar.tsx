@@ -4,7 +4,7 @@ import styled from 'styled-components';
 import { MOCK_NAV_BADGES } from '../mockservice';
 import { useAppContext } from '../contexts/AppContext';
 import { usePlans } from '../actions/plans';
-import { NewPlanModal } from './NewPlanModal';
+import { NewPlanChatModal } from './NewPlanChatModal';
 
 const SidebarContainer = styled.aside<{ $open: boolean }>`
   width: ${(p) => (p.$open ? '260px' : '48px')};
@@ -397,7 +397,7 @@ export function Sidebar() {
         </CollapsedContent>
       )}
     </SidebarContainer>
-    {showNewPlan && <NewPlanModal onClose={() => setShowNewPlan(false)} />}
+    {showNewPlan && <NewPlanChatModal onClose={() => setShowNewPlan(false)} />}
     </>
   );
 }

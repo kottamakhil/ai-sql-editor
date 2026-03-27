@@ -226,7 +226,6 @@ export function ChatPanel({ planId }: ChatPanelProps) {
 
     chatMutation.mutate(
       {
-        plan_id: planId,
         message: userMsg,
         conversation_id: conversationId,
       },
