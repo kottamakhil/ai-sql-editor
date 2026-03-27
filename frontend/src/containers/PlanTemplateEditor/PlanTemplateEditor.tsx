@@ -31,6 +31,13 @@ export function PlanTemplateEditor() {
   const [name, setName] = useState('');
   const [content, setContent] = useState('');
 
+  if (mode.kind === 'idle' && templates && templates.length > 0) {
+    const first = templates[0];
+    setMode({ kind: 'view', template: first });
+    setName(first.name);
+    setContent(first.content);
+  }
+
   const handleSelectTemplate = (tpl: PlanTemplate) => {
     setMode({ kind: 'view', template: tpl });
     setName(tpl.name);
