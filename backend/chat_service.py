@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from agent import AgentResult, build_system_prompt, run_agent_loop
-from models import Conversation, ConversationMessage, Plan, Skill, SqlArtifact
+from models import Conversation, ConversationMessage, Plan, PlanSkillVersion, Skill, SkillVersion, SqlArtifact
 from services.sqlalchemy_plan_service import SqlAlchemyPlanService
 
 log = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ async def process_chat(
     message: str,
     conversation_id: str | None,
     session: AsyncSession,
+    skill_ids: list[str] | None = None,
 ) -> ChatResult:
     """Run a full chat turn: load context, invoke agent, persist, return result."""
 
@@ -50,13 +51,17 @@ async def process_chat(
         plan = await _load_plan(conversation.plan_id, session)
 
     plan_service = SqlAlchemyPlanService(session, plan)
-
-    skills = await _load_skills(session)
     schema_ddls = await _get_schema_ddls(session)
+
+    if skill_ids:
+        skills_dict = await _load_skills_by_ids(skill_ids, session)
+    elif plan:
+        skills_dict = await _load_pinned_skills(plan.id, session)
+    else:
+        skills_dict = []
 
     plan_dict = await plan_service.get_plan()
     artifacts_dict = await plan_service.get_artifacts()
-    skills_dict = [{"name": s.name, "content": s.content} for s in skills]
 
     system_prompt = build_system_prompt(plan_dict, artifacts_dict, skills_dict, schema_ddls)
     history = _load_history(conversation)
@@ -182,11 +187,34 @@ async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
     return plan
 
 
-async def _load_skills(session: AsyncSession) -> list[Skill]:
-    """Load all skills."""
+async def _load_pinned_skills(plan_id: str, session: AsyncSession) -> list[dict]:
+    """Load skill versions pinned to a plan."""
 
-    result = await session.execute(select(Skill))
-    return list(result.scalars())
+    result = await session.execute(
+        select(Skill.name, SkillVersion.content)
+        .join(SkillVersion, PlanSkillVersion.skill_version_id == SkillVersion.id)
+        .join(Skill, SkillVersion.skill_id == Skill.id)
+        .where(PlanSkillVersion.plan_id == plan_id)
+    )
+    return [{"name": name, "content": content} for name, content in result.all()]
+
+
+async def _load_skills_by_ids(skill_ids: list[str], session: AsyncSession) -> list[dict]:
+    """Resolve skill_ids to their latest versions (for chat-time override)."""
+
+    skills_dict = []
+    for sid in skill_ids:
+        result = await session.execute(
+            select(Skill.name, SkillVersion.content)
+            .join(SkillVersion, SkillVersion.skill_id == Skill.id)
+            .where(Skill.id == sid)
+            .order_by(SkillVersion.version.desc())
+            .limit(1)
+        )
+        row = result.one_or_none()
+        if row:
+            skills_dict.append({"name": row[0], "content": row[1]})
+    return skills_dict
 
 
 async def _get_schema_ddls(session: AsyncSession) -> list[str]:

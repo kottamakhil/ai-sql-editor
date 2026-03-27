@@ -11,7 +11,7 @@ from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from models import Conversation, Plan, Skill, SqlArtifact
+from models import Conversation, Plan, PlanSkillVersion, Skill, SkillVersion, SqlArtifact
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class CreatePlanRequest(BaseModel):
     name: str
     plan_type: str = "RECURRING"
     frequency: str = "QUARTERLY"
+    skill_ids: list[str] | None = None
 
 
 class UpdatePlanRequest(BaseModel):
@@ -62,10 +63,18 @@ class CreateSkillRequest(BaseModel):
     content: str
 
 
+class SkillVersionOut(BaseModel):
+    version_id: str
+    version: int
+    content: str
+
+
 class SkillOut(BaseModel):
     skill_id: str
     name: str
     content: str
+    current_version: int = 1
+    versions: list[SkillVersionOut] | None = None
 
 
 class ExecuteRequest(BaseModel):
@@ -97,6 +106,7 @@ class ClarificationQuestion(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
+    skill_ids: list[str] | None = None
 
 
 class MessageOut(BaseModel):
@@ -166,6 +176,7 @@ async def list_plans(session: AsyncSession = Depends(get_db)):
 
 @router.post("/plans", response_model=PlanOut)
 async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(get_db)):
+    """Create a plan and pin skill_ids to their latest versions."""
     plan = Plan(
         name=req.name,
         plan_type=req.plan_type.upper(),
@@ -173,16 +184,17 @@ async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(ge
         mode="AI_ASSISTED",
     )
     session.add(plan)
+    await session.flush()
+
+    if req.skill_ids:
+        versions = await _resolve_latest_skill_versions(req.skill_ids, session)
+        for sv in versions:
+            session.add(PlanSkillVersion(plan_id=plan.id, skill_version_id=sv.id))
+
     await session.commit()
     await session.refresh(plan)
-    return PlanOut(
-        plan_id=plan.id,
-        name=plan.name,
-        plan_type=plan.plan_type,
-        frequency=plan.frequency,
-        mode=plan.mode,
-        artifacts=[],
-    )
+    plan.artifacts = []
+    return await _plan_to_out(plan, session)
 
 
 @router.get("/plans/{plan_id}", response_model=PlanOut)
@@ -264,42 +276,132 @@ async def delete_artifact(artifact_id: str, session: AsyncSession = Depends(get_
 # --- Skills ---
 
 
+async def _resolve_latest_skill_versions(
+    skill_ids: list[str], session: AsyncSession,
+) -> list[SkillVersion]:
+    """Resolve each skill_id to its latest SkillVersion."""
+    versions = []
+    for sid in skill_ids:
+        result = await session.execute(
+            select(SkillVersion)
+            .where(SkillVersion.skill_id == sid)
+            .order_by(SkillVersion.version.desc())
+            .limit(1)
+        )
+        sv = result.scalar_one_or_none()
+        if sv:
+            versions.append(sv)
+    return versions
+
+
+def _skill_to_out(skill: Skill, include_versions: bool = False) -> SkillOut:
+    """Convert a Skill ORM object to an API response with latest content and optional version history."""
+    latest = skill.versions[-1] if skill.versions else None
+    out = SkillOut(
+        skill_id=skill.id,
+        name=skill.name,
+        content=latest.content if latest else skill.content,
+        current_version=latest.version if latest else 1,
+    )
+    if include_versions and skill.versions:
+        out.versions = [
+            SkillVersionOut(version_id=v.id, version=v.version, content=v.content)
+            for v in skill.versions
+        ]
+    return out
+
+
 @router.post("/skills", response_model=SkillOut)
 async def create_skill(req: CreateSkillRequest, session: AsyncSession = Depends(get_db)):
+    """Create a new skill with its initial version (v1)."""
     skill = Skill(name=req.name, content=req.content)
     session.add(skill)
+    await session.flush()
+
+    v1 = SkillVersion(skill_id=skill.id, version=1, content=req.content)
+    session.add(v1)
     await session.commit()
-    await session.refresh(skill)
-    return SkillOut(skill_id=skill.id, name=skill.name, content=skill.content)
+
+    result = await session.execute(
+        select(Skill).options(selectinload(Skill.versions)).where(Skill.id == skill.id)
+    )
+    skill = result.scalar_one()
+    return _skill_to_out(skill)
 
 
 @router.get("/skills", response_model=list[SkillOut])
 async def list_skills(session: AsyncSession = Depends(get_db)):
-    result = await session.execute(select(Skill))
-    return [SkillOut(skill_id=s.id, name=s.name, content=s.content) for s in result.scalars()]
+    """List all skills with their latest content and version number."""
+    result = await session.execute(select(Skill).options(selectinload(Skill.versions)))
+    return [_skill_to_out(s) for s in result.scalars()]
 
 
 @router.get("/skills/{skill_id}", response_model=SkillOut)
 async def get_skill(skill_id: str, session: AsyncSession = Depends(get_db)):
-    result = await session.execute(select(Skill).where(Skill.id == skill_id))
+    """Get a skill with its full version history."""
+    result = await session.execute(
+        select(Skill).options(selectinload(Skill.versions)).where(Skill.id == skill_id)
+    )
     skill = result.scalar_one_or_none()
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill {skill_id} not found")
-    return SkillOut(skill_id=skill.id, name=skill.name, content=skill.content)
+    return _skill_to_out(skill, include_versions=True)
 
 
 @router.put("/skills/{skill_id}", response_model=SkillOut)
 async def update_skill(skill_id: str, req: CreateSkillRequest, session: AsyncSession = Depends(get_db)):
-    result = await session.execute(select(Skill).where(Skill.id == skill_id))
+    """Create a new immutable version of the skill with updated content."""
+    result = await session.execute(
+        select(Skill).options(selectinload(Skill.versions)).where(Skill.id == skill_id)
+    )
     skill = result.scalar_one_or_none()
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill {skill_id} not found")
 
     skill.name = req.name
     skill.content = req.content
+    next_version = (skill.versions[-1].version + 1) if skill.versions else 1
+    session.add(SkillVersion(skill_id=skill.id, version=next_version, content=req.content))
     await session.commit()
-    await session.refresh(skill)
-    return SkillOut(skill_id=skill.id, name=skill.name, content=skill.content)
+
+    result = await session.execute(
+        select(Skill).options(selectinload(Skill.versions)).where(Skill.id == skill.id)
+    )
+    skill = result.scalar_one()
+    return _skill_to_out(skill, include_versions=True)
+
+
+# --- Plan Skills ---
+
+
+class PlanSkillOut(BaseModel):
+    skill_id: str
+    skill_name: str
+    version_id: str
+    version: int
+    content: str
+
+
+@router.get("/plans/{plan_id}/skills", response_model=list[PlanSkillOut])
+async def get_plan_skills(plan_id: str, session: AsyncSession = Depends(get_db)):
+    """Return the exact skill versions pinned to this plan at creation time."""
+    await load_plan(plan_id, session)
+    result = await session.execute(
+        select(PlanSkillVersion, SkillVersion, Skill)
+        .join(SkillVersion, PlanSkillVersion.skill_version_id == SkillVersion.id)
+        .join(Skill, SkillVersion.skill_id == Skill.id)
+        .where(PlanSkillVersion.plan_id == plan_id)
+    )
+    return [
+        PlanSkillOut(
+            skill_id=skill.id,
+            skill_name=skill.name,
+            version_id=sv.id,
+            version=sv.version,
+            content=sv.content,
+        )
+        for _, sv, skill in result.all()
+    ]
 
 
 # --- Conversations ---
@@ -427,7 +529,7 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db)):
-    result = await process_chat(req.message, req.conversation_id, session)
+    result = await process_chat(req.message, req.conversation_id, session, skill_ids=req.skill_ids)
     return _chat_result_to_response(result)
 
 

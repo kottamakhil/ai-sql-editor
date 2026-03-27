@@ -87,6 +87,33 @@ class Skill(Base):
         DateTime, server_default=func.now(), nullable=False
     )
 
+    versions: Mapped[list["SkillVersion"]] = relationship(
+        back_populates="skill", cascade="all, delete-orphan", order_by="SkillVersion.version"
+    )
+
+
+class SkillVersion(Base):
+    __tablename__ = "skill_versions"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    skill_id: Mapped[str] = mapped_column(String(12), ForeignKey("skills.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    skill: Mapped["Skill"] = relationship(back_populates="versions")
+
+
+class PlanSkillVersion(Base):
+    """Join table: pins a plan to specific skill versions at creation time."""
+    __tablename__ = "plan_skill_versions"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False)
+    skill_version_id: Mapped[str] = mapped_column(String(12), ForeignKey("skill_versions.id"), nullable=False)
+
 
 class Conversation(Base):
     __tablename__ = "conversations"
