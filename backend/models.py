@@ -106,15 +106,6 @@ class SkillVersion(Base):
     skill: Mapped["Skill"] = relationship(back_populates="versions")
 
 
-class PlanSkillVersion(Base):
-    """Join table: pins a plan to specific skill versions at creation time."""
-    __tablename__ = "plan_skill_versions"
-
-    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
-    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False)
-    skill_version_id: Mapped[str] = mapped_column(String(12), ForeignKey("skill_versions.id"), nullable=False)
-
-
 class Conversation(Base):
     __tablename__ = "conversations"
 
@@ -159,3 +150,16 @@ class ConversationMessage(Base):
             import json
             msg["tool_calls"] = json.loads(self.tool_calls_json)
         return msg
+
+
+class ConversationSkillVersion(Base):
+    """Pins a conversation to specific skill versions at creation time."""
+    __tablename__ = "conversation_skill_versions"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    conversation_id: Mapped[str] = mapped_column(
+        String(12), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    skill_version_id: Mapped[str] = mapped_column(
+        String(12), ForeignKey("skill_versions.id"), nullable=False
+    )

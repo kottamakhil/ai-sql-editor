@@ -11,7 +11,7 @@ from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from models import Conversation, Plan, PlanSkillVersion, Skill, SkillVersion, SqlArtifact
+from models import Conversation, ConversationSkillVersion, Plan, Skill, SkillVersion, SqlArtifact
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,6 @@ class CreatePlanRequest(BaseModel):
     name: str
     plan_type: str = "RECURRING"
     frequency: str = "QUARTERLY"
-    skill_ids: list[str] | None = None
 
 
 class UpdatePlanRequest(BaseModel):
@@ -39,14 +38,6 @@ class ArtifactOut(BaseModel):
     sql_expression: str
 
 
-class PlanSkillOut(BaseModel):
-    skill_id: str
-    skill_name: str
-    version_id: str
-    version: int
-    content: str
-
-
 class PlanOut(BaseModel):
     plan_id: str
     name: str
@@ -55,7 +46,7 @@ class PlanOut(BaseModel):
     mode: str
     artifacts: list[ArtifactOut]
     conversation_id: str | None = None
-    skills: list[PlanSkillOut] | None = None
+    skills: list["ConversationSkillOut"] | None = None
 
 
 class CreateArtifactRequest(BaseModel):
@@ -136,11 +127,20 @@ class ChatResponse(BaseModel):
     pending_questions: list[ClarificationQuestion] | None = None
 
 
+class ConversationSkillOut(BaseModel):
+    skill_id: str
+    skill_name: str
+    version_id: str
+    version: int
+    content: str
+
+
 class ConversationOut(BaseModel):
     conversation_id: str
     plan_id: str | None = None
     title: str | None = None
     pending_questions: list[ClarificationQuestion] | None = None
+    skills: list[ConversationSkillOut] | None = None
     messages: list[MessageOut]
 
 
@@ -164,7 +164,7 @@ def _artifact_to_out(a: SqlArtifact) -> ArtifactOut:
 
 
 async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
-    """Build a PlanOut with conversation_id and pinned skills."""
+    """Build a PlanOut with conversation_id and skills from the linked conversation."""
     conv_result = await session.execute(
         select(Conversation.id)
         .where(Conversation.plan_id == plan.id)
@@ -173,19 +173,21 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
     )
     conv_id = conv_result.scalar_one_or_none()
 
-    skills_result = await session.execute(
-        select(PlanSkillVersion, SkillVersion, Skill)
-        .join(SkillVersion, PlanSkillVersion.skill_version_id == SkillVersion.id)
-        .join(Skill, SkillVersion.skill_id == Skill.id)
-        .where(PlanSkillVersion.plan_id == plan.id)
-    )
-    skills = [
-        PlanSkillOut(
-            skill_id=skill.id, skill_name=skill.name,
-            version_id=sv.id, version=sv.version, content=sv.content,
+    skills = None
+    if conv_id:
+        skills_result = await session.execute(
+            select(ConversationSkillVersion, SkillVersion, Skill)
+            .join(SkillVersion, ConversationSkillVersion.skill_version_id == SkillVersion.id)
+            .join(Skill, SkillVersion.skill_id == Skill.id)
+            .where(ConversationSkillVersion.conversation_id == conv_id)
         )
-        for _, sv, skill in skills_result.all()
-    ] or None
+        skills = [
+            ConversationSkillOut(
+                skill_id=skill.id, skill_name=skill.name,
+                version_id=sv.id, version=sv.version, content=sv.content,
+            )
+            for _, sv, skill in skills_result.all()
+        ] or None
 
     return PlanOut(
         plan_id=plan.id,
@@ -212,7 +214,7 @@ async def list_plans(session: AsyncSession = Depends(get_db)):
 
 @router.post("/plans", response_model=PlanOut)
 async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(get_db)):
-    """Create a plan and pin skill_ids to their latest versions."""
+    """Create a new commission plan."""
     plan = Plan(
         name=req.name,
         plan_type=req.plan_type.upper(),
@@ -220,13 +222,6 @@ async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(ge
         mode="AI_ASSISTED",
     )
     session.add(plan)
-    await session.flush()
-
-    if req.skill_ids:
-        versions = await _resolve_latest_skill_versions(req.skill_ids, session)
-        for sv in versions:
-            session.add(PlanSkillVersion(plan_id=plan.id, skill_version_id=sv.id))
-
     await session.commit()
     await session.refresh(plan)
     plan.artifacts = []
@@ -296,24 +291,6 @@ async def delete_artifact(artifact_id: str, session: AsyncSession = Depends(get_
 
 
 # --- Skills ---
-
-
-async def _resolve_latest_skill_versions(
-    skill_ids: list[str], session: AsyncSession,
-) -> list[SkillVersion]:
-    """Resolve each skill_id to its latest SkillVersion."""
-    versions = []
-    for sid in skill_ids:
-        result = await session.execute(
-            select(SkillVersion)
-            .where(SkillVersion.skill_id == sid)
-            .order_by(SkillVersion.version.desc())
-            .limit(1)
-        )
-        sv = result.scalar_one_or_none()
-        if sv:
-            versions.append(sv)
-    return versions
 
 
 def _skill_to_out(skill: Skill, include_versions: bool = False) -> SkillOut:
@@ -435,11 +412,26 @@ async def get_conversation(conversation_id: str, session: AsyncSession = Depends
         import json as _json
         pending = _parse_questions(_json.loads(conv.pending_questions_json))
 
+    skills_result = await session.execute(
+        select(ConversationSkillVersion, SkillVersion, Skill)
+        .join(SkillVersion, ConversationSkillVersion.skill_version_id == SkillVersion.id)
+        .join(Skill, SkillVersion.skill_id == Skill.id)
+        .where(ConversationSkillVersion.conversation_id == conversation_id)
+    )
+    skills = [
+        ConversationSkillOut(
+            skill_id=skill.id, skill_name=skill.name,
+            version_id=sv.id, version=sv.version, content=sv.content,
+        )
+        for _, sv, skill in skills_result.all()
+    ] or None
+
     return ConversationOut(
         conversation_id=conv.id,
         plan_id=conv.plan_id,
         title=conv.title,
         pending_questions=pending,
+        skills=skills,
         messages=[
             MessageOut(message_id=m.id, role=m.role, content=m.content)
             for m in visible_messages
