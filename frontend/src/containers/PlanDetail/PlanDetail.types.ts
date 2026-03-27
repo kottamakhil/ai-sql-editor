@@ -1,1 +1,1 @@
-export type TabId = 'summary' | 'artifacts' | 'config';
+export type TabId = 'summary' | 'artifacts' | 'config' | 'skills';

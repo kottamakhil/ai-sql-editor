@@ -4,6 +4,7 @@ import { usePlan } from '../../actions/plans';
 import { SummaryTab } from '../../components/SummaryTab/SummaryTab';
 import { ArtifactsTab } from '../../components/ArtifactsTab/ArtifactsTab';
 import { PlanConfigTab } from '../../components/PlanConfigTab';
+import { PlanSkillsTab } from '../../components/PlanSkillsTab';
 import { ChatPanel } from '../../components/ChatPanel/ChatPanel';
 import type { TabId } from './PlanDetail.types';
 import {
@@ -48,7 +49,10 @@ export function PlanDetail() {
             Artifacts
           </Tab>
           <Tab $active={activeTab === 'config'} onClick={() => setActiveTab('config')}>
-            Plan Config
+            Plan configuration
+          </Tab>
+          <Tab $active={activeTab === 'skills'} onClick={() => setActiveTab('skills')}>
+            Plan skills
           </Tab>
         </TabBar>
 
@@ -56,6 +60,7 @@ export function PlanDetail() {
           {activeTab === 'summary' && <SummaryTab plan={plan} />}
           {activeTab === 'artifacts' && <ArtifactsTab artifacts={plan.artifacts} planId={planId!} />}
           {activeTab === 'config' && <PlanConfigTab plan={plan} planId={planId!} />}
+          {activeTab === 'skills' && <PlanSkillsTab skills={plan.skills} />}
         </TabContent>
       </MainContent>
 

@@ -1,3 +1,11 @@
+export interface PlanSkill {
+  skill_id: string;
+  skill_name: string;
+  version_id: string;
+  version: number;
+  content: string;
+}
+
 export interface Plan {
   plan_id: string;
   name: string;
@@ -5,6 +13,7 @@ export interface Plan {
   frequency: string;
   mode: string;
   artifacts: Artifact[];
+  skills?: PlanSkill[] | null;
 }
 
 export interface PlanCreate {
