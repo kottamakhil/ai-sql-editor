@@ -6,7 +6,7 @@ from openai.types.chat import ChatCompletionMessage
 
 log = logging.getLogger(__name__)
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4")
 
 _client: AsyncOpenAI | None = None
 

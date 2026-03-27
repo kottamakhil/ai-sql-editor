@@ -157,6 +157,6 @@ ai-sql-editor/
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for gpt-4o |
+| `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `DATABASE_URL` | Yes | PostgreSQL connection string, e.g. `postgresql+asyncpg://user:pass@host:5432/db` |
-| `OPENAI_MODEL` | No | Model name (defaults to `gpt-4o`) |
+| `OPENAI_MODEL` | No | Model name (defaults to `gpt-5.4`) |
