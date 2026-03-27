@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { AppLayout } from '../components/AppLayout';
+import { AppLayout } from '../components/AppLayout/AppLayout';
 import { PlansLanding } from '../containers/PlansLanding/PlansLanding';
 import { PlanDetail } from '../containers/PlanDetail/PlanDetail';
 import { SkillsEditor } from '../containers/SkillsEditor/SkillsEditor';

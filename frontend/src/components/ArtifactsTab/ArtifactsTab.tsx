@@ -1,25 +1,6 @@
-import styled from 'styled-components';
-import type { Artifact } from '../types';
-import { ArtifactCard } from './ArtifactCard/ArtifactCard';
-
-const Container = styled.div`
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-`;
-
-const EmptyState = styled.div`
-  text-align: center;
-  padding: 48px 24px;
-  color: #6b7280;
-  font-size: 14px;
-`;
-
-interface ArtifactsTabProps {
-  artifacts: Artifact[];
-  planId: string;
-}
+import { ArtifactCard } from '../ArtifactCard/ArtifactCard';
+import type { ArtifactsTabProps } from './ArtifactsTab.types';
+import { Container, EmptyState } from './ArtifactsTab.styles';
 
 export function ArtifactsTab({ artifacts, planId }: ArtifactsTabProps) {
   if (artifacts.length === 0) {
