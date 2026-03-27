@@ -39,6 +39,14 @@ class ArtifactOut(BaseModel):
     sql_expression: str
 
 
+class PlanSkillOut(BaseModel):
+    skill_id: str
+    skill_name: str
+    version_id: str
+    version: int
+    content: str
+
+
 class PlanOut(BaseModel):
     plan_id: str
     name: str
@@ -46,6 +54,8 @@ class PlanOut(BaseModel):
     frequency: str
     mode: str
     artifacts: list[ArtifactOut]
+    conversation_id: str | None = None
+    skills: list[PlanSkillOut] | None = None
 
 
 class CreateArtifactRequest(BaseModel):
@@ -153,6 +163,42 @@ def _artifact_to_out(a: SqlArtifact) -> ArtifactOut:
     return ArtifactOut(artifact_id=a.id, name=a.name, sql_expression=a.sql_expression)
 
 
+async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
+    """Build a PlanOut with conversation_id and pinned skills."""
+    conv_result = await session.execute(
+        select(Conversation.id)
+        .where(Conversation.plan_id == plan.id)
+        .order_by(Conversation.created_at.desc())
+        .limit(1)
+    )
+    conv_id = conv_result.scalar_one_or_none()
+
+    skills_result = await session.execute(
+        select(PlanSkillVersion, SkillVersion, Skill)
+        .join(SkillVersion, PlanSkillVersion.skill_version_id == SkillVersion.id)
+        .join(Skill, SkillVersion.skill_id == Skill.id)
+        .where(PlanSkillVersion.plan_id == plan.id)
+    )
+    skills = [
+        PlanSkillOut(
+            skill_id=skill.id, skill_name=skill.name,
+            version_id=sv.id, version=sv.version, content=sv.content,
+        )
+        for _, sv, skill in skills_result.all()
+    ] or None
+
+    return PlanOut(
+        plan_id=plan.id,
+        name=plan.name,
+        plan_type=plan.plan_type,
+        frequency=plan.frequency,
+        mode=plan.mode,
+        artifacts=[_artifact_to_out(a) for a in plan.artifacts],
+        conversation_id=conv_id,
+        skills=skills,
+    )
+
+
 # --- Plan CRUD ---
 
 
@@ -161,17 +207,7 @@ async def list_plans(session: AsyncSession = Depends(get_db)):
     result = await session.execute(
         select(Plan).options(selectinload(Plan.artifacts)).order_by(Plan.created_at.desc())
     )
-    return [
-        PlanOut(
-            plan_id=p.id,
-            name=p.name,
-            plan_type=p.plan_type,
-            frequency=p.frequency,
-            mode=p.mode,
-            artifacts=[_artifact_to_out(a) for a in p.artifacts],
-        )
-        for p in result.scalars()
-    ]
+    return [await _plan_to_out(p, session) for p in result.scalars()]
 
 
 @router.post("/plans", response_model=PlanOut)
@@ -200,14 +236,7 @@ async def create_plan(req: CreatePlanRequest, session: AsyncSession = Depends(ge
 @router.get("/plans/{plan_id}", response_model=PlanOut)
 async def get_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
     plan = await load_plan(plan_id, session)
-    return PlanOut(
-        plan_id=plan.id,
-        name=plan.name,
-        plan_type=plan.plan_type,
-        frequency=plan.frequency,
-        mode=plan.mode,
-        artifacts=[_artifact_to_out(a) for a in plan.artifacts],
-    )
+    return await _plan_to_out(plan, session)
 
 
 @router.patch("/plans/{plan_id}", response_model=PlanOut)
@@ -222,15 +251,8 @@ async def update_plan(plan_id: str, req: UpdatePlanRequest, session: AsyncSessio
         plan.frequency = req.frequency.upper()
 
     await session.commit()
-    await session.refresh(plan)
-    return PlanOut(
-        plan_id=plan.id,
-        name=plan.name,
-        plan_type=plan.plan_type,
-        frequency=plan.frequency,
-        mode=plan.mode,
-        artifacts=[_artifact_to_out(a) for a in plan.artifacts],
-    )
+    plan = await load_plan(plan.id, session)
+    return await _plan_to_out(plan, session)
 
 
 # --- Artifact CRUD ---
@@ -369,39 +391,6 @@ async def update_skill(skill_id: str, req: CreateSkillRequest, session: AsyncSes
     )
     skill = result.scalar_one()
     return _skill_to_out(skill, include_versions=True)
-
-
-# --- Plan Skills ---
-
-
-class PlanSkillOut(BaseModel):
-    skill_id: str
-    skill_name: str
-    version_id: str
-    version: int
-    content: str
-
-
-@router.get("/plans/{plan_id}/skills", response_model=list[PlanSkillOut])
-async def get_plan_skills(plan_id: str, session: AsyncSession = Depends(get_db)):
-    """Return the exact skill versions pinned to this plan at creation time."""
-    await load_plan(plan_id, session)
-    result = await session.execute(
-        select(PlanSkillVersion, SkillVersion, Skill)
-        .join(SkillVersion, PlanSkillVersion.skill_version_id == SkillVersion.id)
-        .join(Skill, SkillVersion.skill_id == Skill.id)
-        .where(PlanSkillVersion.plan_id == plan_id)
-    )
-    return [
-        PlanSkillOut(
-            skill_id=skill.id,
-            skill_name=skill.name,
-            version_id=sv.id,
-            version=sv.version,
-            content=sv.content,
-        )
-        for _, sv, skill in result.all()
-    ]
 
 
 # --- Conversations ---
@@ -548,6 +537,7 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
             frequency=result.plan["frequency"],
             mode=result.plan.get("mode", "AI_ASSISTED"),
             artifacts=current_artifacts,
+            conversation_id=result.conversation_id,
         )
 
     return ChatResponse(
