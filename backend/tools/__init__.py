@@ -31,6 +31,7 @@ def _register_all() -> None:
     from tools.ask_clarification import AskClarificationTool
     from tools.create_plan import CreatePlanTool
     from tools.execute_query import ExecuteQueryTool
+    from tools.infer_plan_config import InferPlanConfigTool
     from tools.update_plan import UpdatePlanTool
     from tools.update_plan_config import UpdatePlanConfigTool
     from tools.update_sql_artifacts import UpdateSqlArtifactsTool
@@ -40,6 +41,7 @@ def _register_all() -> None:
     registry.register(UpdateSqlArtifactsTool())
     registry.register(UpdatePlanTool())
     registry.register(UpdatePlanConfigTool())
+    registry.register(InferPlanConfigTool())
     registry.register(ExecuteQueryTool())
     registry.register(ValidateSqlTool())
     registry.register(AskClarificationTool())

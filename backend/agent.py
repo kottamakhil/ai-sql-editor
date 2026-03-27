@@ -43,6 +43,8 @@ def build_system_prompt(
     artifacts: list[dict],
     skills: list[dict],
     schema_ddls: list[str],
+    plan_template: str | None = None,
+    inferred_config: str | None = None,
 ) -> str:
     """Build the system prompt from plain dicts (no ORM dependency)."""
 
@@ -100,6 +102,14 @@ execute queries, and validate SQL. Use them as needed to fulfill the user's requ
 {artifacts_block}
 </current_sql_artifacts>
 
+<plan_template>
+{plan_template or "No plan template configured."}
+</plan_template>
+
+<current_inferred_config>
+{inferred_config or "No inferred config yet."}
+</current_inferred_config>
+
 Guidelines:
 - If no plan exists and the user wants to build commission SQL, call create_plan first.
 - When building or modifying commission SQL, use the update_sql_artifacts tool.
@@ -110,6 +120,9 @@ Guidelines:
 - Use validate_sql to check SQL correctness before committing artifacts.
 - Use update_plan to change plan name, type, or frequency.
 - Use update_plan_config to configure payout timing, payroll integration, or dispute settings.
+- If a plan_template is provided, use infer_plan_config to fill in the template based on the
+  conversation. Mark confirmed values normally, add "# inferred -- please confirm" for guesses,
+  and use "TODO" for unknowns. Update the inferred config on each turn as you learn more.
 - If a tool returns an error, fix the issue and retry.
 - In your final response, always include the full composed SQL that combines all
   artifacts into a single WITH/CTE statement inside a ```sql code block.

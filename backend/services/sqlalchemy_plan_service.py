@@ -177,6 +177,20 @@ class SqlAlchemyPlanService(PlanServiceBase):
         log.info("Updated plan %s config: %s", plan.id, list(config_patch.keys()))
         return plan.config.to_dict() if plan.config else {}
 
+    async def save_inferred_config(self, yaml_content: str) -> str:
+        """Save the LLM-inferred YAML to the plan."""
+        plan = self._require_plan()
+        plan.inferred_config_yaml = yaml_content
+        await self._session.commit()
+        log.info("Saved inferred config for plan %s (%d chars)", plan.id, len(yaml_content))
+        return yaml_content
+
+    async def get_inferred_config(self) -> str | None:
+        """Return the inferred config YAML."""
+        if not self._plan:
+            return None
+        return self._plan.inferred_config_yaml
+
     @staticmethod
     def _plan_to_dict(plan: Plan) -> dict:
         return {
@@ -186,4 +200,5 @@ class SqlAlchemyPlanService(PlanServiceBase):
             "frequency": plan.frequency,
             "mode": plan.mode,
             "config": plan.config.to_dict() if plan.config else default_config_dict(),
+            "inferred_config": plan.inferred_config_yaml,
         }

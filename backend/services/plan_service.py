@@ -55,3 +55,13 @@ class PlanServiceBase(ABC):
     async def update_plan_config(self, config_patch: dict) -> dict:
         """Merge a partial config patch into the current plan's config. Returns the full updated config."""
         ...
+
+    @abstractmethod
+    async def save_inferred_config(self, yaml_content: str) -> str:
+        """Save the LLM-inferred plan configuration YAML to the plan. Returns the saved YAML."""
+        ...
+
+    @abstractmethod
+    async def get_inferred_config(self) -> str | None:
+        """Return the inferred config YAML for the current plan, or None."""
+        ...

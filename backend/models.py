@@ -54,6 +54,7 @@ class Plan(Base):
     plan_type: Mapped[str] = mapped_column(String(20), nullable=False, default="RECURRING")
     frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="QUARTERLY")
     mode: Mapped[str] = mapped_column(String(20), nullable=False, default="AI_ASSISTED")
+    inferred_config_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -118,6 +119,18 @@ def default_config_dict() -> dict:
             "is_disputes_enabled": True,
         },
     }
+
+
+class PlanTemplate(Base):
+    """A reusable YAML/JSON template that defines what the LLM should infer from the conversation."""
+    __tablename__ = "plan_templates"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
 
 
 class SqlArtifact(Base):

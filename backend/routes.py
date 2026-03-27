@@ -11,7 +11,7 @@ from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, execute_artifact, execute_plan_preview, execute_raw_sql
-from models import Conversation, ConversationSkillVersion, Plan, PlanConfig, Skill, SkillVersion, SqlArtifact, default_config_dict
+from models import Conversation, ConversationSkillVersion, Plan, PlanConfig, PlanTemplate, Skill, SkillVersion, SqlArtifact, default_config_dict
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ class PlanOut(BaseModel):
     mode: str
     artifacts: list[ArtifactOut]
     config: PlanConfigOut = PlanConfigOut()
+    inferred_config: str | None = None
     conversation_id: str | None = None
     skills: list["ConversationSkillOut"] | None = None
 
@@ -226,6 +227,7 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
         mode=plan.mode,
         artifacts=[_artifact_to_out(a) for a in plan.artifacts],
         config=plan_config,
+        inferred_config=plan.inferred_config_yaml,
         conversation_id=conv_id,
         skills=skills,
     )
@@ -404,6 +406,61 @@ async def update_skill(skill_id: str, req: CreateSkillRequest, session: AsyncSes
     return _skill_to_out(skill, include_versions=True)
 
 
+# --- Plan Templates ---
+
+
+class PlanTemplateOut(BaseModel):
+    template_id: str
+    name: str
+    content: str
+
+
+class CreatePlanTemplateRequest(BaseModel):
+    name: str
+    content: str
+
+
+@router.post("/plan-templates", response_model=PlanTemplateOut)
+async def create_plan_template(req: CreatePlanTemplateRequest, session: AsyncSession = Depends(get_db)):
+    """Create a plan inference template."""
+    tpl = PlanTemplate(name=req.name, content=req.content)
+    session.add(tpl)
+    await session.commit()
+    await session.refresh(tpl)
+    return PlanTemplateOut(template_id=tpl.id, name=tpl.name, content=tpl.content)
+
+
+@router.get("/plan-templates", response_model=list[PlanTemplateOut])
+async def list_plan_templates(session: AsyncSession = Depends(get_db)):
+    """List all plan inference templates."""
+    result = await session.execute(select(PlanTemplate).order_by(PlanTemplate.created_at.desc()))
+    return [PlanTemplateOut(template_id=t.id, name=t.name, content=t.content) for t in result.scalars()]
+
+
+@router.get("/plan-templates/{template_id}", response_model=PlanTemplateOut)
+async def get_plan_template(template_id: str, session: AsyncSession = Depends(get_db)):
+    """Get a plan inference template."""
+    result = await session.execute(select(PlanTemplate).where(PlanTemplate.id == template_id))
+    tpl = result.scalar_one_or_none()
+    if not tpl:
+        raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+    return PlanTemplateOut(template_id=tpl.id, name=tpl.name, content=tpl.content)
+
+
+@router.put("/plan-templates/{template_id}", response_model=PlanTemplateOut)
+async def update_plan_template(template_id: str, req: CreatePlanTemplateRequest, session: AsyncSession = Depends(get_db)):
+    """Update a plan inference template."""
+    result = await session.execute(select(PlanTemplate).where(PlanTemplate.id == template_id))
+    tpl = result.scalar_one_or_none()
+    if not tpl:
+        raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+    tpl.name = req.name
+    tpl.content = req.content
+    await session.commit()
+    await session.refresh(tpl)
+    return PlanTemplateOut(template_id=tpl.id, name=tpl.name, content=tpl.content)
+
+
 # --- Conversations ---
 
 
@@ -569,6 +626,7 @@ def _chat_result_to_response(result: ChatResult) -> ChatResponse:
                 payroll=PayrollConfigOut(**cfg.get("payroll", {})),
                 disputes=DisputeConfigOut(**cfg.get("disputes", {})),
             ),
+            inferred_config=result.plan.get("inferred_config"),
             conversation_id=result.conversation_id,
         )
 

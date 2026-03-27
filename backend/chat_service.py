@@ -60,8 +60,14 @@ async def process_chat(
 
     plan_dict = await plan_service.get_plan()
     artifacts_dict = await plan_service.get_artifacts()
+    plan_template = await _load_active_template(session)
+    inferred_config = await plan_service.get_inferred_config()
 
-    system_prompt = build_system_prompt(plan_dict, artifacts_dict, skills_dict, schema_ddls)
+    system_prompt = build_system_prompt(
+        plan_dict, artifacts_dict, skills_dict, schema_ddls,
+        plan_template=plan_template,
+        inferred_config=inferred_config,
+    )
     history = _load_history(conversation)
 
     messages = [
@@ -168,6 +174,16 @@ async def _save_conversation_messages(
 
     if conversation.title is None:
         conversation.title = user_message[:120]
+
+
+async def _load_active_template(session: AsyncSession) -> str | None:
+    """Load the most recently created plan template, or None."""
+    from models import PlanTemplate
+    result = await session.execute(
+        select(PlanTemplate).order_by(PlanTemplate.created_at.desc()).limit(1)
+    )
+    tpl = result.scalar_one_or_none()
+    return tpl.content if tpl else None
 
 
 # --- Data access helpers ---
