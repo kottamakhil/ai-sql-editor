@@ -38,6 +38,10 @@ User says: "Build a commission plan" without specifying details. The AI returns 
 
 User drags a PDF commission plan document or a CSV rate card into the chat. The AI reads the file natively and extracts the relevant details to build the plan.
 
+### Preview by period
+
+When viewing a plan's artifacts, the user selects a period from a dropdown (e.g., "March 2026"). The system filters results to show only that period's data. Defaults to the latest cycle. "All Periods" shows everything.
+
 ### Template-based inference
 
 The team provides a YAML template defining what fields should be inferred from the conversation (plan details, eligibility, earning rules, payout engine, etc.). The AI fills in the template progressively, marking confirmed values, inferred guesses, and TODOs. The filled template is saved on the plan and updated on each chat turn.
@@ -78,7 +82,8 @@ AI produces:
 
 | Entity | Purpose |
 |--------|---------|
-| Plan | Commission plan with name, type, frequency, config, inferred config |
+| Plan | Commission plan with name, type, frequency, start/end dates, config, inferred config |
+| Plan Cycle | Time period within a plan (auto-generated from frequency + dates) |
 | Plan Config | Payout timing, payroll integration, dispute settings (1:1 with plan) |
 | Plan Inferred Config | LLM-filled YAML from a template (1:1 with plan) |
 | SQL Artifact | Named CTE or final query, linked to a plan |
@@ -94,6 +99,7 @@ AI produces:
 - A conversation may or may not have a plan (plan is created during chat)
 - A plan has one conversation (returned as `conversation_id` on the plan)
 - A plan has many artifacts (replaced as a set on each chat turn)
+- A plan has many cycles (auto-generated from frequency + start/end dates)
 - A plan has one config (payout/payroll/disputes) and optionally one inferred config
 - Skills are versioned; plans pin to specific versions at creation time
 - Chat files are uploaded separately and referenced by file_id in messages
@@ -118,9 +124,8 @@ AI produces:
 | `response` | AI's text explanation |
 | `conversation_id` | Use for follow-up messages |
 | `composed_sql` | Full WITH/CTE query |
-| `lineage` | DAG of artifact dependencies (nodes + edges) |
 | `current_artifacts` | All artifacts with name and SQL |
-| `plan` | Plan object with config, inferred_config, conversation_id, skills |
+| `plan` | Plan object with config, cycles, inferred_config, conversation_id, skills |
 | `tool_calls` | What the AI did (created plan, updated artifacts, etc.) |
 | `pending_questions` | Clarification form if the request was ambiguous |
 
@@ -128,7 +133,7 @@ AI produces:
 
 | Capability | Behavior |
 |------------|----------|
-| Create plan | Infers name, type, frequency from the request |
+| Create plan | Infers name, type, frequency, start/end dates from the request. Auto-generates cycles. |
 | Build SQL | Decomposes into named CTEs with `payout` as final |
 | Modify SQL | Replaces all artifacts with the complete updated set |
 | Update plan | Changes name, type, or frequency |

@@ -84,17 +84,23 @@ curl -s http://localhost:8000/api/plans/<plan_id>/preview | python -m json.tool
 | POST | `/api/plans` | Create a plan |
 | GET | `/api/plans/{plan_id}` | Get plan with artifacts |
 | PATCH | `/api/plans/{plan_id}` | Update plan fields |
-| GET | `/api/plans/{plan_id}/preview` | Full composed CTE query + results |
+| GET | `/api/plans/{plan_id}/preview` | Full composed CTE query + results (optional `?cycle_id=`) |
+| GET | `/api/plans/{plan_id}/lineage` | Artifact dependency DAG (nodes + edges) |
 | GET | `/api/plans/{plan_id}/conversations` | List conversations for a plan |
 | POST | `/api/plans/{plan_id}/artifacts` | Create an artifact |
 | PATCH | `/api/artifacts/{artifact_id}` | Update an artifact |
 | DELETE | `/api/artifacts/{artifact_id}` | Delete an artifact |
-| POST | `/api/execute` | Execute artifact or raw SQL |
+| POST | `/api/execute` | Execute artifact or raw SQL (optional `cycle_id` for period filter) |
+| POST | `/api/chat/upload` | Upload a file for multimodal chat |
 | POST | `/api/skills` | Create a skill |
 | GET | `/api/skills` | List all skills |
 | GET | `/api/skills/{skill_id}` | Get a skill |
 | PUT | `/api/skills/{skill_id}` | Update a skill (full replace) |
 | GET | `/api/schema` | Table DDLs for business tables |
+| POST | `/api/plan-templates` | Create a plan inference template |
+| GET | `/api/plan-templates` | List plan templates |
+| GET | `/api/plan-templates/{id}` | Get a plan template |
+| PUT | `/api/plan-templates/{id}` | Update a plan template |
 | GET | `/api/conversations/{conversation_id}` | Get conversation (includes pending_questions) |
 | DELETE | `/api/conversations/{conversation_id}` | Delete a conversation |
 
