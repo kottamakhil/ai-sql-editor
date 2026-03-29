@@ -76,13 +76,15 @@ export async function uploadChatFile(file: File): Promise<ChatFileOut> {
 
 // ---- Execute ----
 
-export const executeSql = (data: { artifact_id?: string; sql_expression?: string }) =>
+export const executeSql = (data: { artifact_id?: string; sql_expression?: string; cycle_id?: string }) =>
   http<ExecutionResult>('/execute', { method: 'POST', body: JSON.stringify(data) });
 
 // ---- Preview ----
 
-export const fetchPreview = (planId: string) =>
-  http<PreviewResponse>(`/plans/${planId}/preview`);
+export const fetchPreview = (planId: string, cycleId?: string) => {
+  const params = cycleId ? `?cycle_id=${cycleId}` : '';
+  return http<PreviewResponse>(`/plans/${planId}/preview${params}`);
+};
 
 // ---- Lineage ----
 
@@ -195,10 +197,10 @@ export const useConversation = (conversationId: string | null) =>
     enabled: !!conversationId,
   });
 
-export const useExecuteArtifact = (artifactId: string) =>
+export const useExecuteArtifact = (artifactId: string, cycleId?: string) =>
   useQuery({
-    queryKey: ['execute', artifactId],
-    queryFn: () => executeSql({ artifact_id: artifactId }),
+    queryKey: ['execute', artifactId, cycleId],
+    queryFn: () => executeSql({ artifact_id: artifactId, cycle_id: cycleId }),
     enabled: !!artifactId,
   });
 

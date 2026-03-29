@@ -14,8 +14,11 @@ class PlanServiceBase(ABC):
     """Storage-agnostic interface for plan and artifact operations."""
 
     @abstractmethod
-    async def create_plan(self, name: str, plan_type: str = "RECURRING", frequency: str = "QUARTERLY") -> dict:
-        """Create a new plan. Returns dict with plan_id, name, plan_type, frequency."""
+    async def create_plan(
+        self, name: str, plan_type: str = "RECURRING", frequency: str = "QUARTERLY",
+        start_date: str | None = None, end_date: str | None = None,
+    ) -> dict:
+        """Create a new plan with optional dates. Auto-generates cycles if dates provided."""
         ...
 
     @abstractmethod

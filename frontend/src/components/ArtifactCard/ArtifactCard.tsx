@@ -18,11 +18,11 @@ import {
   LoadingBox,
 } from './ArtifactCard.styles';
 
-export function ArtifactCard({ artifact, planId }: ArtifactCardProps) {
+export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
   const [view, setView] = useState<'data' | 'sql'>('data');
   const [collapsed, setCollapsed] = useState(false);
   const [editedSql, setEditedSql] = useState(artifact.sql_expression);
-  const { data: result, isLoading, isError } = useExecuteArtifact(artifact.artifact_id);
+  const { data: result, isLoading, isError } = useExecuteArtifact(artifact.artifact_id, cycleId);
   const updateMutation = useUpdateArtifact(planId);
 
   const hasChanges = editedSql !== artifact.sql_expression;

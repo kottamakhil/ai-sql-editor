@@ -29,21 +29,34 @@ class SqlAlchemyPlanService(PlanServiceBase):
         return self._plan
 
     async def create_plan(
-        self, name: str, plan_type: str = "RECURRING", frequency: str = "QUARTERLY"
+        self, name: str, plan_type: str = "RECURRING", frequency: str = "QUARTERLY",
+        start_date: str | None = None, end_date: str | None = None,
     ) -> dict:
-        from models import PlanConfig
+        import datetime as dt
+        from models import PlanConfig, generate_cycles
+
+        sd = dt.date.fromisoformat(start_date) if start_date else None
+        ed = dt.date.fromisoformat(end_date) if end_date else None
 
         plan = Plan(
             name=name,
             plan_type=plan_type.upper(),
             frequency=frequency.upper(),
             mode="AI_ASSISTED",
+            start_date=sd,
+            end_date=ed,
         )
         self._session.add(plan)
         await self._session.flush()
 
         config = PlanConfig(plan_id=plan.id)
         self._session.add(config)
+
+        if sd and ed:
+            for cycle in generate_cycles(plan.id, frequency, sd, ed):
+                self._session.add(cycle)
+            log.info("Generated cycles for plan %s (%s → %s, %s)", plan.id, sd, ed, frequency)
+
         await self._session.commit()
         self._plan = plan
         plan = await self._reload_plan()
@@ -128,7 +141,7 @@ class SqlAlchemyPlanService(PlanServiceBase):
         plan = self._require_plan()
         result = await self._session.execute(
             select(Plan)
-            .options(selectinload(Plan.config), selectinload(Plan.inferred_config))
+            .options(selectinload(Plan.config), selectinload(Plan.inferred_config), selectinload(Plan.cycles))
             .where(Plan.id == plan.id)
         )
         self._plan = result.scalar_one()
@@ -207,6 +220,8 @@ class SqlAlchemyPlanService(PlanServiceBase):
             "plan_type": plan.plan_type,
             "frequency": plan.frequency,
             "mode": plan.mode,
+            "start_date": plan.start_date.isoformat() if plan.start_date else None,
+            "end_date": plan.end_date.isoformat() if plan.end_date else None,
             "config": plan.config.to_dict() if plan.config else default_config_dict(),
             "inferred_config": plan.inferred_config.content if plan.inferred_config else None,
         }

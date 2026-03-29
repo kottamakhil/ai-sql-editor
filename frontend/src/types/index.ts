@@ -27,13 +27,23 @@ export interface PlanConfig {
   disputes: DisputeConfig;
 }
 
+export interface PlanCycle {
+  cycle_id: string;
+  period_name: string;
+  start_date: string;
+  end_date: string;
+}
+
 export interface Plan {
   plan_id: string;
   name: string;
   plan_type: string;
   frequency: string;
   mode: string;
+  start_date?: string | null;
+  end_date?: string | null;
   artifacts: Artifact[];
+  cycles?: PlanCycle[] | null;
   config: PlanConfig;
   inferred_config?: string | null;
   skills?: PlanSkill[] | null;

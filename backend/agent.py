@@ -120,6 +120,11 @@ Guidelines:
 - Use validate_sql to check SQL correctness before committing artifacts.
 - Use update_plan to change plan name, type, or frequency.
 - Use update_plan_config to configure payout timing, payroll integration, or dispute settings.
+- When creating plans, infer start_date and end_date from the user's request.
+- JOIN with plan_cycles to group results by period. Include cycle_id and period_name
+  in the output so the system can filter by period at preview time.
+  Example: JOIN plan_cycles pc ON d.closed_date >= pc.start_date AND d.closed_date <= pc.end_date
+           WHERE pc.plan_id = '<plan_id>'
 - If a plan_template is provided, use infer_plan_config to fill in the template based on the
   conversation. Mark confirmed values normally, add "# inferred -- please confirm" for guesses,
   and use "TODO" for unknowns. Update the inferred config on each turn as you learn more.

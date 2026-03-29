@@ -21,7 +21,7 @@ from services.sqlalchemy_plan_service import SqlAlchemyPlanService
 
 log = logging.getLogger(__name__)
 
-BUSINESS_TABLES = {"employees", "deals", "quotas"}
+BUSINESS_TABLES = {"employees", "deals", "quotas", "plan_cycles"}
 
 
 @dataclass
@@ -234,7 +234,8 @@ async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
 
     result = await session.execute(
         select(Plan).options(
-            selectinload(Plan.artifacts), selectinload(Plan.config), selectinload(Plan.inferred_config)
+            selectinload(Plan.artifacts), selectinload(Plan.config),
+            selectinload(Plan.inferred_config), selectinload(Plan.cycles)
         ).where(Plan.id == plan_id)
     )
     plan = result.scalar_one_or_none()

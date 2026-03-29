@@ -11,7 +11,7 @@ from chat_service import _get_schema_ddls as get_schema_ddls
 from chat_service import _load_plan as load_plan
 from database import get_db
 from executor import ExecutionResult, build_lineage_dag, execute_artifact, execute_plan_preview, execute_raw_sql
-from models import ChatFile, Conversation, ConversationSkillVersion, Plan, PlanConfig, PlanTemplate, Skill, SkillVersion, SqlArtifact, default_config_dict
+from models import ChatFile, Conversation, ConversationSkillVersion, Plan, PlanConfig, PlanCycle, PlanTemplate, Skill, SkillVersion, SqlArtifact, default_config_dict
 
 log = logging.getLogger(__name__)
 
@@ -59,13 +59,23 @@ class PlanConfigOut(BaseModel):
     disputes: DisputeConfigOut = DisputeConfigOut()
 
 
+class PlanCycleOut(BaseModel):
+    cycle_id: str
+    period_name: str
+    start_date: str
+    end_date: str
+
+
 class PlanOut(BaseModel):
     plan_id: str
     name: str
     plan_type: str
     frequency: str
     mode: str
+    start_date: str | None = None
+    end_date: str | None = None
     artifacts: list[ArtifactOut]
+    cycles: list[PlanCycleOut] | None = None
     config: PlanConfigOut = PlanConfigOut()
     inferred_config: str | None = None
     conversation_id: str | None = None
@@ -104,6 +114,7 @@ class SkillOut(BaseModel):
 class ExecuteRequest(BaseModel):
     artifact_id: str | None = None
     sql_expression: str | None = None
+    cycle_id: str | None = None
 
 
 class ToolCallOut(BaseModel):
@@ -237,13 +248,24 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
         disputes=DisputeConfigOut(**cfg["disputes"]),
     )
 
+    cycles = [
+        PlanCycleOut(
+            cycle_id=c.id, period_name=c.period_name,
+            start_date=c.start_date.isoformat(), end_date=c.end_date.isoformat(),
+        )
+        for c in plan.cycles
+    ] if hasattr(plan, 'cycles') and plan.cycles else None
+
     return PlanOut(
         plan_id=plan.id,
         name=plan.name,
         plan_type=plan.plan_type,
         frequency=plan.frequency,
         mode=plan.mode,
+        start_date=plan.start_date.isoformat() if plan.start_date else None,
+        end_date=plan.end_date.isoformat() if plan.end_date else None,
         artifacts=[_artifact_to_out(a) for a in plan.artifacts],
+        cycles=cycles,
         config=plan_config,
         inferred_config=plan.inferred_config.content if plan.inferred_config else None,
         conversation_id=conv_id,
@@ -258,7 +280,8 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
 async def list_plans(session: AsyncSession = Depends(get_db)):
     result = await session.execute(
         select(Plan).options(
-            selectinload(Plan.artifacts), selectinload(Plan.config), selectinload(Plan.inferred_config)
+            selectinload(Plan.artifacts), selectinload(Plan.config),
+            selectinload(Plan.inferred_config), selectinload(Plan.cycles)
         ).order_by(Plan.created_at.desc())
     )
     return [await _plan_to_out(p, session) for p in result.scalars()]
@@ -576,6 +599,7 @@ async def get_schema(session: AsyncSession = Depends(get_db)):
 
 @router.post("/execute", response_model=ExecutionResult)
 async def execute_sql(req: ExecuteRequest, session: AsyncSession = Depends(get_db)):
+    """Execute an artifact or raw SQL. If cycle_id is provided, wraps the result with a period filter."""
     if req.artifact_id:
         result = await session.execute(select(SqlArtifact).where(SqlArtifact.id == req.artifact_id))
         artifact = result.scalar_one_or_none()
@@ -586,7 +610,11 @@ async def execute_sql(req: ExecuteRequest, session: AsyncSession = Depends(get_d
             select(SqlArtifact).where(SqlArtifact.plan_id == artifact.plan_id)
         )
         all_artifacts = list(plan_result.scalars())
-        return await execute_artifact(artifact, all_artifacts, session)
+        exec_result = await execute_artifact(artifact, all_artifacts, session)
+
+        if req.cycle_id and not exec_result.error and "cycle_id" in exec_result.columns:
+            return await _execute_with_cycle_filter(artifact, all_artifacts, req.cycle_id, session)
+        return exec_result
 
     if req.sql_expression:
         return await execute_raw_sql(req.sql_expression, session)
@@ -594,11 +622,29 @@ async def execute_sql(req: ExecuteRequest, session: AsyncSession = Depends(get_d
     raise HTTPException(status_code=400, detail="Provide artifact_id or sql_expression")
 
 
+async def _execute_with_cycle_filter(
+    artifact: SqlArtifact,
+    all_artifacts: list[SqlArtifact],
+    cycle_id: str,
+    session: AsyncSession,
+) -> ExecutionResult:
+    """Execute an artifact and wrap it with a cycle_id filter."""
+    from executor import _build_cte_query, _resolve_dependencies
+
+    named = {a.name: a for a in all_artifacts if a.name}
+    deps = _resolve_dependencies(artifact, named)
+    composed_sql = _build_cte_query(deps, artifact.sql_expression)
+
+    filtered_sql = f"SELECT * FROM ({composed_sql}) AS _result WHERE cycle_id = '{cycle_id}'"
+    return await execute_raw_sql(filtered_sql, session)
+
+
 # --- Plan preview ---
 
 
 @router.get("/plans/{plan_id}/preview", response_model=PreviewResponse)
-async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
+async def preview_plan(plan_id: str, cycle_id: str | None = None, session: AsyncSession = Depends(get_db)):
+    """Preview the full composed query. Optional cycle_id filters results by period."""
     plan = await load_plan(plan_id, session)
     artifacts = list(plan.artifacts)
 
@@ -612,7 +658,12 @@ async def preview_plan(plan_id: str, session: AsyncSession = Depends(get_db)):
     deps = _resolve_dependencies(final, named)
     composed_sql = _build_cte_query(deps, final.sql_expression)
 
-    exec_result = await execute_plan_preview(artifacts, session)
+    if cycle_id:
+        filtered_sql = f"SELECT * FROM ({composed_sql}) AS _result WHERE cycle_id = '{cycle_id}'"
+        exec_result = await execute_raw_sql(filtered_sql, session)
+    else:
+        exec_result = await execute_plan_preview(artifacts, session)
+
     return PreviewResponse(composed_sql=composed_sql, result=exec_result)
 
 
