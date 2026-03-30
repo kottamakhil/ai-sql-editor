@@ -30,6 +30,7 @@ import {
   SkillPickerLabel,
   SkillChips,
   SkillChip,
+  SkillChipSkeleton,
 } from './NewPlanChatModal.styles';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -58,7 +59,7 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const chatMutation = useChat();
-  const { data: skills } = useSkills();
+  const { data: skills, isLoading: isLoadingSkills } = useSkills();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
@@ -282,7 +283,14 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
                 <h3>Describe your compensation plan</h3>
                 <p>Tell us about your plan and we'll help you build it with AI.</p>
               </WelcomeHint>
-              {skills && skills.length > 0 && (
+              {isLoadingSkills ? (
+                <SkillPickerSection>
+                  <SkillPickerLabel>Skills to include</SkillPickerLabel>
+                  <SkillChips>
+                    <SkillChipSkeleton /><SkillChipSkeleton /><SkillChipSkeleton />
+                  </SkillChips>
+                </SkillPickerSection>
+              ) : skills && skills.length > 0 ? (
                 <SkillPickerSection>
                   <SkillPickerLabel>Skills to include</SkillPickerLabel>
                   <SkillChips>
@@ -304,7 +312,7 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
                     ))}
                   </SkillChips>
                 </SkillPickerSection>
-              )}
+              ) : null}
             </>
           )}
 

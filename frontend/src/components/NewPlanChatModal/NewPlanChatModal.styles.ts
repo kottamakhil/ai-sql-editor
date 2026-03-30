@@ -1,4 +1,4 @@
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 
 export const thinScrollbar = `
   &::-webkit-scrollbar { width: 4px; }
@@ -312,4 +312,19 @@ export const FileChipRemove = styled.button`
   flex-shrink: 0;
   &:hover { color: #dc2626; background: #fee2e2; }
   svg { width: 12px; height: 12px; }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+`;
+
+export const SkillChipSkeleton = styled.div`
+  display: inline-block;
+  width: 90px;
+  height: 34px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+  background-size: 200% 100%;
+  animation: ${shimmer} 1.5s ease-in-out infinite;
 `;
