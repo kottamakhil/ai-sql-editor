@@ -701,19 +701,119 @@ async def _execute_with_cycle_filter(
 # --- Explain ---
 
 
+EXPLAIN_SYSTEM_PROMPT = (
+    "You are a compensation plan explainer. Given SQL artifacts and execution results, "
+    "return a structured JSON explanation of how the commission is calculated. "
+    "Pick one employee with multiple deals as the example. "
+    "Do NOT explain SQL. Focus on business logic and real numbers."
+)
+
+EXPLAIN_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string", "description": "One-sentence description of what this plan pays"},
+        "eligibility": {"type": "string", "description": "What deals qualify for commission"},
+        "tiers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "rate": {"type": "string"},
+                    "is_active": {"type": "boolean"},
+                },
+                "required": ["label", "rate", "is_active"],
+                "additionalProperties": False,
+            },
+        },
+        "example": {
+            "type": "object",
+            "properties": {
+                "employee": {"type": "string"},
+                "period": {"type": "string"},
+                "deals": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "value": {"type": "number"},
+                            "date": {"type": "string"},
+                        },
+                        "required": ["id", "value", "date"],
+                        "additionalProperties": False,
+                    },
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string"},
+                            "formula": {"type": ["string", "null"]},
+                            "result": {"type": "string"},
+                            "bar_pct": {"type": ["number", "null"]},
+                            "note": {"type": ["string", "null"]},
+                            "is_final": {"type": ["boolean", "null"]},
+                        },
+                        "required": ["label", "formula", "result", "bar_pct", "note", "is_final"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["employee", "period", "deals", "steps"],
+            "additionalProperties": False,
+        },
+    },
+    "required": ["summary", "eligibility", "tiers", "example"],
+    "additionalProperties": False,
+}
+
+
 class ExplainRequest(BaseModel):
     cycle_id: str | None = None
+
+
+class ExplainDeal(BaseModel):
+    id: str
+    value: float
+    date: str
+
+
+class ExplainStep(BaseModel):
+    label: str
+    formula: str | None = None
+    result: str
+    bar_pct: float | None = None
+    note: str | None = None
+    is_final: bool | None = None
+
+
+class ExplainTier(BaseModel):
+    label: str
+    rate: str
+    is_active: bool
+
+
+class ExplainExample(BaseModel):
+    employee: str
+    period: str
+    deals: list[ExplainDeal]
+    steps: list[ExplainStep]
 
 
 class ExplainResponse(BaseModel):
     artifact_id: str
     artifact_name: str | None
-    explanation: str
+    summary: str
+    eligibility: str
+    tiers: list[ExplainTier]
+    example: ExplainExample
 
 
 @router.post("/artifacts/{artifact_id}/explain", response_model=ExplainResponse)
 async def explain_artifact(artifact_id: str, req: ExplainRequest, session: AsyncSession = Depends(get_db)):
-    """Ask the LLM to explain what a payout artifact does, using real execution data."""
+    """Generate a structured visual explanation for an artifact using real execution data."""
     result = await session.execute(select(SqlArtifact).where(SqlArtifact.id == artifact_id))
     artifact = result.scalar_one_or_none()
     if not artifact:
@@ -723,12 +823,9 @@ async def explain_artifact(artifact_id: str, req: ExplainRequest, session: Async
         select(SqlArtifact).where(SqlArtifact.plan_id == artifact.plan_id).order_by(SqlArtifact.created_at)
     )
     all_artifacts = list(plan_result.scalars())
-
     plan = await load_plan(artifact.plan_id, session)
 
-    artifacts_context = "\n".join(
-        f"- {a.name}: {a.sql_expression}" for a in all_artifacts
-    )
+    artifacts_context = "\n".join(f"- {a.name}: {a.sql_expression}" for a in all_artifacts)
 
     payout_result = await execute_artifact(artifact, all_artifacts, session)
     if req.cycle_id and not payout_result.error and "cycle_id" in payout_result.columns:
@@ -741,18 +838,12 @@ async def explain_artifact(artifact_id: str, req: ExplainRequest, session: Async
         if req.cycle_id and not base_result.error and "cycle_id" in base_result.columns:
             base_result = await _execute_with_cycle_filter(base_artifact, all_artifacts, req.cycle_id, session)
 
-    def _format_table(exec_res: ExecutionResult, max_rows: int = 20) -> str:
+    def _fmt(exec_res: ExecutionResult, max_rows: int = 20) -> str:
         if exec_res.error or not exec_res.rows:
             return "(no data)"
         header = "| " + " | ".join(exec_res.columns) + " |"
-        rows = "\n".join(
-            "| " + " | ".join(str(c) for c in row) + " |"
-            for row in exec_res.rows[:max_rows]
-        )
+        rows = "\n".join("| " + " | ".join(str(c) for c in row) + " |" for row in exec_res.rows[:max_rows])
         return f"{header}\n{rows}"
-
-    payout_table = _format_table(payout_result)
-    base_table = _format_table(base_result) if base_result else "(not available)"
 
     cycle_label = ""
     if req.cycle_id and plan.cycles:
@@ -760,39 +851,37 @@ async def explain_artifact(artifact_id: str, req: ExplainRequest, session: Async
         if cycle:
             cycle_label = f"Period: {cycle.period_name}"
 
-    from llm import call_openai_with_tools
-
-    system_msg = (
-        "You are a compensation plan explainer. Given SQL artifacts and their execution results, "
-        "explain how this commission plan works. Pick one employee from the results to walk through "
-        "as a concrete example — choose one that best illustrates the calculation. "
-        "Write for a non-technical compensation admin. Use markdown."
+    user_msg = (
+        f"Plan: {plan.name} ({plan.frequency})\n{cycle_label}\n\n"
+        f"SQL artifacts:\n{artifacts_context}\n\n"
+        f"Payout results:\n{_fmt(payout_result)}\n\n"
+        f"Source data ({base_artifact.name if base_artifact else 'base'}):\n"
+        f"{_fmt(base_result) if base_result else '(not available)'}"
     )
 
-    user_msg = f"""Plan: {plan.name} ({plan.frequency})
-{cycle_label}
+    from llm import call_openai_structured
 
-SQL artifacts:
-{artifacts_context}
-
-Payout results:
-{payout_table}
-
-Source data ({base_artifact.name if base_artifact else 'base'}):
-{base_table}"""
-
-    response = await call_openai_with_tools(
+    parsed = await call_openai_structured(
         messages=[
-            {"role": "system", "content": system_msg},
+            {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ],
-        tools=[],
+        json_schema=EXPLAIN_JSON_SCHEMA,
     )
 
+    example_data = parsed.get("example", {})
     return ExplainResponse(
         artifact_id=artifact.id,
         artifact_name=artifact.name,
-        explanation=response.content or "Unable to generate explanation.",
+        summary=parsed.get("summary", ""),
+        eligibility=parsed.get("eligibility", ""),
+        tiers=[ExplainTier(**t) for t in parsed.get("tiers", [])],
+        example=ExplainExample(
+            employee=example_data.get("employee", ""),
+            period=example_data.get("period", ""),
+            deals=[ExplainDeal(**d) for d in example_data.get("deals", [])],
+            steps=[ExplainStep(**s) for s in example_data.get("steps", [])],
+        ),
     )
 
 

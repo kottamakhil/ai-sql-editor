@@ -124,4 +124,24 @@ HAS_CONFIG=$(echo "$PLAN_WITH_CFG" | python3 -c "import sys,json; print('config'
 HAS_PAYOUT=$(echo "$PLAN_WITH_CFG" | python3 -c "import sys,json; print('payout' in json.load(sys.stdin)['config'])")
 [ "$HAS_PAYOUT" = "True" ] && pass "Config includes payout section" || fail "No payout in config"
 
+# ── Lineage endpoint ──
+step "Lineage endpoint"
+LINEAGE_RESP=$(curl -s "$BASE/api/plans/$PLAN_ID/lineage")
+check_json "$LINEAGE_RESP" "Lineage"
+HAS_NODES=$(echo "$LINEAGE_RESP" | python3 -c "import sys,json; print('nodes' in json.load(sys.stdin))")
+[ "$HAS_NODES" = "True" ] && pass "Lineage has nodes" || fail "No nodes in lineage"
+HAS_EDGES=$(echo "$LINEAGE_RESP" | python3 -c "import sys,json; print('edges' in json.load(sys.stdin))")
+[ "$HAS_EDGES" = "True" ] && pass "Lineage has edges" || fail "No edges in lineage"
+
+# ── File upload ──
+step "File upload"
+TMPFILE=$(mktemp /tmp/test_upload_XXXXXX.csv)
+echo "name,value" > "$TMPFILE"
+echo "Alice,100" >> "$TMPFILE"
+UPLOAD_RESP=$(curl -s -X POST "$BASE/api/chat/upload" -F "file=@$TMPFILE;type=text/csv")
+rm -f "$TMPFILE"
+check_json "$UPLOAD_RESP" "Upload"
+FILE_ID=$(echo "$UPLOAD_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['file_id'])")
+pass "Uploaded file $FILE_ID"
+
 summary

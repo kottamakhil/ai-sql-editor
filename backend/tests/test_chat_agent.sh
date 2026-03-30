@@ -176,4 +176,32 @@ HAS_CONV_ID=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; print(json.load(
 HAS_CONFIG=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; print('config' in json.load(sys.stdin))")
 [ "$HAS_CONFIG" = "True" ] && pass "Plan has config" || fail "No config in plan"
 
+HAS_CYCLES=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cycles') is not None and len(d['cycles']) > 0)")
+[ "$HAS_CYCLES" = "True" ] && pass "Plan has cycles" || debug "No cycles (start/end dates may not have been set)"
+
+# ── Explain artifact ──
+step "Explain artifact"
+PAYOUT_ART_ID=$(echo "$PLAN_FINAL" | python3 -c "
+import sys, json
+arts = json.load(sys.stdin)['artifacts']
+payout = next((a for a in arts if a.get('name') == 'payout'), None)
+print(payout['artifact_id'] if payout else arts[-1]['artifact_id'] if arts else '')
+")
+
+if [ -n "$PAYOUT_ART_ID" ]; then
+    EXPLAIN_RESP=$(curl -s -X POST "$BASE/api/artifacts/$PAYOUT_ART_ID/explain" \
+      -H "Content-Type: application/json" \
+      -d '{}')
+    check_json "$EXPLAIN_RESP" "Explain"
+    HAS_SUMMARY=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('summary','')) > 10)")
+    [ "$HAS_SUMMARY" = "True" ] && pass "Got structured explanation with summary" || fail "Summary too short"
+    HAS_TIERS=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('tiers',[])) > 0)")
+    [ "$HAS_TIERS" = "True" ] && pass "Explanation has tiers" || debug "No tiers returned"
+    HAS_EXAMPLE=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print('employee' in json.load(sys.stdin).get('example',{}))")
+    [ "$HAS_EXAMPLE" = "True" ] && pass "Explanation has example walkthrough" || fail "No example in explanation"
+    debug "Summary: $(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary'])")"
+else
+    debug "Skipped explain (no artifacts)"
+fi
+
 summary
