@@ -1,4 +1,19 @@
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
+
+const shimmer = keyframes`
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+`;
+
+export const SkeletonLine = styled.div<{ $width?: string }>`
+  height: 14px;
+  width: ${(p) => p.$width ?? '100%'};
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: ${shimmer} 1.5s ease-in-out infinite;
+  margin: 4px 16px;
+`;
 
 export const SidebarContainer = styled.aside<{ $open: boolean }>`
   width: ${(p) => (p.$open ? '260px' : '48px')};

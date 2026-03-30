@@ -18,6 +18,8 @@ import {
   EmptyChat,
   ClarificationWrapper,
   ThinkingIndicator,
+  ShimmerBubble,
+  ShimmerLine,
 } from './ChatPanel.styles';
 
 const MIN_WIDTH = 280;
@@ -67,10 +69,11 @@ export function ChatPanel({ planId }: ChatPanelProps) {
   }, [isDragging]);
 
   const chatMutation = useChat();
-  const { data: conversations } = useConversations(planId);
+  const { data: conversations, isLoading: convsLoading } = useConversations(planId);
   const latestConvId = conversations?.[0]?.conversation_id ?? null;
   const activeConvId = conversationId || latestConvId;
-  const { data: existingConv } = useConversation(activeConvId);
+  const { data: existingConv, isLoading: convLoading } = useConversation(activeConvId);
+  const isLoadingConversation = convsLoading || (!!activeConvId && convLoading);
 
   if (existingConv && !conversationId) {
     setConversationId(existingConv.conversation_id);
@@ -218,7 +221,22 @@ export function ChatPanel({ planId }: ChatPanelProps) {
         onMouseDown={() => setIsDragging(true)}
       />
       <Panel>
-        {messages.length === 0 && !isThinking ? (
+        {isLoadingConversation ? (
+          <MessagesArea>
+            <ShimmerBubble style={{ width: '60%' }}>
+              <ShimmerLine $width="50%" />
+              <ShimmerLine $width="80%" />
+            </ShimmerBubble>
+            <ShimmerBubble style={{ alignSelf: 'flex-end', width: '55%' }}>
+              <ShimmerLine $width="70%" />
+            </ShimmerBubble>
+            <ShimmerBubble style={{ width: '70%' }}>
+              <ShimmerLine $width="90%" />
+              <ShimmerLine $width="65%" />
+              <ShimmerLine $width="45%" />
+            </ShimmerBubble>
+          </MessagesArea>
+        ) : messages.length === 0 && !isThinking ? (
           <EmptyChat>
             Ask a question or request a change to start building your plan with AI.
           </EmptyChat>

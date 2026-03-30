@@ -1,4 +1,4 @@
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 
 export const thinScrollbar = `
   &::-webkit-scrollbar { width: 4px; }
@@ -181,4 +181,30 @@ export const ThinkingIndicator = styled.div`
     &:nth-child(2) { animation-delay: 0.2s; }
     &:nth-child(3) { animation-delay: 0.4s; }
   }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+`;
+
+export const ShimmerBubble = styled.div`
+  align-self: flex-start;
+  width: 75%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+export const ShimmerLine = styled.div<{ $width?: string }>`
+  height: 12px;
+  width: ${(p) => p.$width ?? '100%'};
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: ${shimmer} 1.5s ease-in-out infinite;
 `;

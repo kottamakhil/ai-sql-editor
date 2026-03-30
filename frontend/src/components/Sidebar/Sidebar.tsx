@@ -23,6 +23,7 @@ import {
   PlanItem,
   SidebarFooter,
   FooterItem,
+  SkeletonLine,
 } from './Sidebar.styles';
 
 export function Sidebar() {
@@ -30,7 +31,7 @@ export function Sidebar() {
   const [showNewPlan, setShowNewPlan] = useState(false);
   const navigate = useNavigate();
   const { planId: activePlanId } = useParams<{ planId: string }>();
-  const { data: plans } = usePlans();
+  const { data: plans, isLoading: plansLoading } = usePlans();
 
   return (
     <>
@@ -86,7 +87,16 @@ export function Sidebar() {
 
           <SectionTitle>Recent plans</SectionTitle>
           <PlansList>
-            {(plans ?? []).map((plan) => (
+            {plansLoading && (
+              <>
+                <SkeletonLine $width="75%" />
+                <SkeletonLine $width="60%" />
+                <SkeletonLine $width="85%" />
+                <SkeletonLine $width="50%" />
+                <SkeletonLine $width="70%" />
+              </>
+            )}
+            {!plansLoading && (plans ?? []).map((plan) => (
               <PlanItem
                 key={plan.plan_id}
                 $active={plan.plan_id === activePlanId}
@@ -95,7 +105,7 @@ export function Sidebar() {
                 {plan.name}
               </PlanItem>
             ))}
-            {plans?.length === 0 && (
+            {!plansLoading && plans?.length === 0 && (
               <PlanItem as="div" style={{ color: '#9ca3af', cursor: 'default' }}>
                 No plans yet
               </PlanItem>
