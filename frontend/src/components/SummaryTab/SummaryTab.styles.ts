@@ -184,6 +184,7 @@ export const DropdownItem = styled.li<{ $active?: boolean }>`
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 
   &:hover {
