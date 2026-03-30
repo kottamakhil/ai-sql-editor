@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ArtifactCard } from '../ArtifactCard/ArtifactCard';
 import type { ArtifactsTabProps } from './ArtifactsTab.types';
 import { Container, EmptyState } from './ArtifactsTab.styles';
@@ -14,23 +14,146 @@ const PeriodBar = styled.div`
 
 const PeriodLabel = styled.span`
   font-size: 13px;
-  color: #888;
+  color: #6b7280;
+  font-weight: 500;
 `;
 
-const PeriodSelect = styled.select`
-  padding: 6px 10px;
-  border: 1px solid #333;
-  border-radius: 6px;
-  background: #1a1a2e;
-  color: #e0e0e0;
-  font-size: 13px;
-  cursor: pointer;
+const DropdownWrapper = styled.div`
+  position: relative;
+  min-width: 180px;
+`;
 
-  &:focus {
-    outline: none;
-    border-color: #6c63ff;
+const DropdownTrigger = styled.button<{ $open?: boolean }>`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid ${(p) => (p.$open ? '#5b1647' : '#d1d5db')};
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a2e;
+  cursor: pointer;
+  gap: 8px;
+  transition: border-color 0.15s;
+
+  &:hover {
+    border-color: #5b1647;
+  }
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #6b7280;
+    transition: transform 0.15s;
+    transform: ${(p) => (p.$open ? 'rotate(180deg)' : 'rotate(0)')};
   }
 `;
+
+const DropdownMenu = styled.ul`
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 200px;
+  overflow-y: auto;
+`;
+
+const DropdownItem = styled.li<{ $active?: boolean }>`
+  padding: 8px 12px;
+  font-size: 13px;
+  color: ${(p) => (p.$active ? '#5b1647' : '#1a1a2e')};
+  background: ${(p) => (p.$active ? '#fdf2f8' : 'transparent')};
+  font-weight: ${(p) => (p.$active ? '500' : '400')};
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  &:hover {
+    background: ${(p) => (p.$active ? '#fdf2f8' : '#f3f4f6')};
+  }
+
+  svg {
+    width: 14px;
+    height: 14px;
+    color: #5b1647;
+    flex-shrink: 0;
+  }
+`;
+
+interface DropdownOption {
+  value: string;
+  label: string;
+}
+
+function PeriodDropdown({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: DropdownOption[];
+  onChange: (val: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const handleClickOutside = useCallback((e: MouseEvent) => {
+    if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+      setOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open, handleClickOutside]);
+
+  const selectedLabel = options.find((o) => o.value === value)?.label ?? value;
+
+  return (
+    <DropdownWrapper ref={wrapperRef}>
+      <DropdownTrigger $open={open} onClick={() => setOpen((o) => !o)} type="button">
+        {selectedLabel}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </DropdownTrigger>
+      {open && (
+        <DropdownMenu>
+          {options.map((opt) => (
+            <DropdownItem
+              key={opt.value}
+              $active={opt.value === value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+            >
+              {opt.label}
+              {opt.value === value && (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </DropdownItem>
+          ))}
+        </DropdownMenu>
+      )}
+    </DropdownWrapper>
+  );
+}
 
 export function ArtifactsTab({ artifacts, planId, cycles }: ArtifactsTabProps) {
   const hasCycles = cycles && cycles.length > 0;
@@ -47,22 +170,21 @@ export function ArtifactsTab({ artifacts, planId, cycles }: ArtifactsTabProps) {
     );
   }
 
+  const periodOptions: DropdownOption[] = [
+    ...(hasCycles ? cycles.map((c) => ({ value: c.cycle_id, label: c.period_name })) : []),
+    { value: '', label: 'All Periods' },
+  ];
+
   return (
     <Container>
       {hasCycles && (
         <PeriodBar>
           <PeriodLabel>Period:</PeriodLabel>
-          <PeriodSelect
+          <PeriodDropdown
             value={selectedCycleId || ''}
-            onChange={(e) => setSelectedCycleId(e.target.value || undefined)}
-          >
-            {cycles.map((c) => (
-              <option key={c.cycle_id} value={c.cycle_id}>
-                {c.period_name}
-              </option>
-            ))}
-            <option value="">All Periods</option>
-          </PeriodSelect>
+            options={periodOptions}
+            onChange={(val) => setSelectedCycleId(val || undefined)}
+          />
         </PeriodBar>
       )}
       {artifacts.map((artifact) => (
