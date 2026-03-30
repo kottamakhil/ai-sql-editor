@@ -100,6 +100,28 @@ export const InlineInput = styled.input`
   }
 `;
 
+export const InlineNumberInput = styled.input.attrs({ type: 'number' })`
+  width: 100px;
+  padding: 4px 8px;
+  font-size: 14px;
+  color: #1a1a2e;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  background: #fff;
+
+  &:focus {
+    border-color: #5b1647;
+    box-shadow: 0 0 0 2px rgba(91, 22, 71, 0.1);
+  }
+
+  &::-webkit-inner-spin-button,
+  &::-webkit-outer-spin-button {
+    opacity: 1;
+  }
+`;
+
 export const DropdownWrapper = styled.div`
   flex: 1;
   position: relative;

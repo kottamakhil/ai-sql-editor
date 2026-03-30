@@ -32,6 +32,27 @@ class UpdatePlanRequest(BaseModel):
     frequency: str | None = None
 
 
+class UpdatePayoutConfig(BaseModel):
+    is_automatic_payout_enabled: bool | None = None
+    final_payment_offset: int | None = None
+    is_draws_enabled: bool | None = None
+    draw_frequency: str | None = None
+
+
+class UpdatePayrollConfig(BaseModel):
+    payout_type: str | None = None
+
+
+class UpdateDisputeConfig(BaseModel):
+    is_disputes_enabled: bool | None = None
+
+
+class UpdatePlanConfigRequest(BaseModel):
+    payout: UpdatePayoutConfig | None = None
+    payroll: UpdatePayrollConfig | None = None
+    disputes: UpdateDisputeConfig | None = None
+
+
 class ArtifactOut(BaseModel):
     artifact_id: str
     name: str | None
@@ -327,6 +348,44 @@ async def update_plan(plan_id: str, req: UpdatePlanRequest, session: AsyncSessio
     await session.commit()
     plan = await load_plan(plan.id, session)
     return await _plan_to_out(plan, session)
+
+
+@router.patch("/plans/{plan_id}/config", response_model=PlanConfigOut)
+async def update_plan_config_endpoint(
+    plan_id: str, req: UpdatePlanConfigRequest, session: AsyncSession = Depends(get_db),
+):
+    plan = await load_plan(plan_id, session)
+    config = plan.config
+    if not config:
+        config = PlanConfig(plan_id=plan.id)
+        session.add(config)
+
+    field_map = {
+        "payout": {
+            "is_automatic_payout_enabled": "is_automatic_payout_enabled",
+            "final_payment_offset": "final_payment_offset",
+            "is_draws_enabled": "is_draws_enabled",
+            "draw_frequency": "draw_frequency",
+        },
+        "payroll": {"payout_type": "payout_type"},
+        "disputes": {"is_disputes_enabled": "is_disputes_enabled"},
+    }
+
+    patch = req.model_dump(exclude_none=True)
+    for section, fields in patch.items():
+        if section in field_map and isinstance(fields, dict):
+            for field_key, column_name in field_map[section].items():
+                if field_key in fields:
+                    setattr(config, column_name, fields[field_key])
+
+    await session.commit()
+    await session.refresh(config)
+    cfg = config.to_dict()
+    return PlanConfigOut(
+        payout=PayoutConfigOut(**cfg["payout"]),
+        payroll=PayrollConfigOut(**cfg["payroll"]),
+        disputes=DisputeConfigOut(**cfg["disputes"]),
+    )
 
 
 # --- Artifact CRUD ---

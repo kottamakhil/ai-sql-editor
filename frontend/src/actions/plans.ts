@@ -3,6 +3,7 @@ import type {
   Plan,
   PlanCreate,
   PlanUpdate,
+  PlanConfig,
   ChatRequest,
   ChatResponse,
   ChatFileOut,
@@ -46,6 +47,9 @@ export const createPlan = (data: PlanCreate) =>
 
 export const updatePlan = (planId: string, data: PlanUpdate) =>
   http<Plan>(`/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(data) });
+
+export const updatePlanConfig = (planId: string, data: Partial<PlanConfig>) =>
+  http<PlanConfig>(`/plans/${planId}/config`, { method: 'PATCH', body: JSON.stringify(data) });
 
 // ---- Artifacts ----
 
@@ -169,6 +173,34 @@ export const useUpdatePlan = (planId: string) => {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['plan', planId] });
       qc.invalidateQueries({ queryKey: ['plans'] });
+    },
+  });
+};
+
+export const useUpdatePlanConfig = (planId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<PlanConfig>) => updatePlanConfig(planId, data),
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ['plan', planId] });
+      const previous = qc.getQueryData<Plan>(['plan', planId]);
+      if (previous) {
+        const merged: PlanConfig = {
+          payout: { ...previous.config.payout, ...data.payout },
+          payroll: { ...previous.config.payroll, ...data.payroll },
+          disputes: { ...previous.config.disputes, ...data.disputes },
+        };
+        qc.setQueryData<Plan>(['plan', planId], { ...previous, config: merged });
+      }
+      return { previous };
+    },
+    onError: (_err, _data, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['plan', planId], context.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['plan', planId] });
     },
   });
 };
