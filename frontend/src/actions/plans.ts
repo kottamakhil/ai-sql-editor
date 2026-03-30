@@ -145,6 +145,34 @@ export const useCreatePlan = () => {
   });
 };
 
+export const useUpdatePlan = (planId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: PlanUpdate) => updatePlan(planId, data),
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ['plan', planId] });
+      const previous = qc.getQueryData<Plan>(['plan', planId]);
+      if (previous) {
+        const patch: Partial<Plan> = {};
+        if (data.name != null) patch.name = data.name;
+        if (data.plan_type != null) patch.plan_type = data.plan_type;
+        if (data.frequency != null) patch.frequency = data.frequency;
+        qc.setQueryData<Plan>(['plan', planId], { ...previous, ...patch });
+      }
+      return { previous };
+    },
+    onError: (_err, _data, context) => {
+      if (context?.previous) {
+        qc.setQueryData(['plan', planId], context.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['plan', planId] });
+      qc.invalidateQueries({ queryKey: ['plans'] });
+    },
+  });
+};
+
 export const useUpdateArtifact = (planId: string) => {
   const qc = useQueryClient();
   return useMutation({

@@ -61,7 +61,7 @@ export function PlanDetail() {
         </TabBar>
 
         <TabContent>
-          {activeTab === 'summary' && <SummaryTab plan={plan} />}
+          {activeTab === 'summary' && <SummaryTab plan={plan} planId={planId!} />}
           {activeTab === 'artifacts' && <ArtifactsTab artifacts={plan.artifacts} planId={planId!} cycles={plan.cycles} />}
           {activeTab === 'config' && <PlanConfigTab plan={plan} planId={planId!} />}
           {activeTab === 'skills' && <PlanSkillsTab skills={plan.skills} />}
