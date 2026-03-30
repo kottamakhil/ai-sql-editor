@@ -21,14 +21,18 @@ def _get_client() -> AsyncOpenAI:
 async def call_openai_with_tools(
     messages: list[dict],
     tools: list[dict],
+    temperature: float = 0.2,
+    seed: int | None = None,
 ) -> ChatCompletionMessage:
     kwargs: dict = {
         "model": OPENAI_MODEL,
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": temperature,
     }
     if tools:
         kwargs["tools"] = tools
+    if seed is not None:
+        kwargs["seed"] = seed
 
     response = await _get_client().chat.completions.create(**kwargs)
     return response.choices[0].message

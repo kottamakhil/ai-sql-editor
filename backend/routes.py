@@ -701,119 +701,55 @@ async def _execute_with_cycle_filter(
 # --- Explain ---
 
 
-EXPLAIN_SYSTEM_PROMPT = (
-    "You are a compensation plan explainer. Given SQL artifacts and execution results, "
-    "return a structured JSON explanation of how the commission is calculated. "
-    "Pick one employee with multiple deals as the example. "
-    "Do NOT explain SQL. Focus on business logic and real numbers."
-)
+EXPLAIN_SYSTEM_PROMPT = """\
+You are a compensation plan explainer that produces SELF-CONTAINED HTML.
 
-EXPLAIN_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string", "description": "One-sentence description of what this plan pays"},
-        "eligibility": {"type": "string", "description": "What deals qualify for commission"},
-        "tiers": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "label": {"type": "string"},
-                    "rate": {"type": "string"},
-                    "is_active": {"type": "boolean"},
-                },
-                "required": ["label", "rate", "is_active"],
-                "additionalProperties": False,
-            },
-        },
-        "example": {
-            "type": "object",
-            "properties": {
-                "employee": {"type": "string"},
-                "period": {"type": "string"},
-                "deals": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "string"},
-                            "value": {"type": "number"},
-                            "date": {"type": "string"},
-                        },
-                        "required": ["id", "value", "date"],
-                        "additionalProperties": False,
-                    },
-                },
-                "steps": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "label": {"type": "string"},
-                            "formula": {"type": ["string", "null"]},
-                            "result": {"type": "string"},
-                            "bar_pct": {"type": ["number", "null"]},
-                            "note": {"type": ["string", "null"]},
-                            "is_final": {"type": ["boolean", "null"]},
-                        },
-                        "required": ["label", "formula", "result", "bar_pct", "note", "is_final"],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-            "required": ["employee", "period", "deals", "steps"],
-            "additionalProperties": False,
-        },
-    },
-    "required": ["summary", "eligibility", "tiers", "example"],
-    "additionalProperties": False,
-}
+Given SQL artifacts and execution results, generate a single HTML fragment
+(no <html>/<head>/<body>) with exactly THREE sections:
+
+SECTION 1 — Plan Overview
+A short paragraph (3-4 sentences) explaining what this plan pays, who is
+eligible, how commission is earned, and the payout frequency. Plain language,
+no jargon.
+
+SECTION 2 — Rates & Accelerators
+A compact visual showing the commission structure at a glance. Combine quotas,
+tiers, rates, and accelerators into one unified view — e.g. a horizontal bar,
+a small table, or side-by-side cards. If there are no tiers or accelerators,
+show the flat rate prominently. Highlight the rate or tier that applies to the
+example employee.
+
+SECTION 3 — Example Walkthrough
+Pick the employee whose data best illustrates the full calculation (ideally
+one with multiple deals). Show:
+- Their name and the period.
+- A compact list or mini-table of their qualifying deals (deal ID, amount, date).
+- The step-by-step calculation from gross deals → commission amount.
+  Show every step but keep each one to a single line with the formula and result.
+- End with the final commission amount, visually emphasized.
+
+FORMATTING RULES:
+- Include a <style> block at the top. Scope ALL styles under `.explain-root`.
+- Do not explain SQL. Focus on business logic and real dollar amounts.
+- Write for a non-technical compensation admin.
+- Use clean, modern CSS. No external dependencies.
+- Return ONLY the HTML fragment, nothing else.
+"""
 
 
 class ExplainRequest(BaseModel):
     cycle_id: str | None = None
 
 
-class ExplainDeal(BaseModel):
-    id: str
-    value: float
-    date: str
-
-
-class ExplainStep(BaseModel):
-    label: str
-    formula: str | None = None
-    result: str
-    bar_pct: float | None = None
-    note: str | None = None
-    is_final: bool | None = None
-
-
-class ExplainTier(BaseModel):
-    label: str
-    rate: str
-    is_active: bool
-
-
-class ExplainExample(BaseModel):
-    employee: str
-    period: str
-    deals: list[ExplainDeal]
-    steps: list[ExplainStep]
-
-
 class ExplainResponse(BaseModel):
     artifact_id: str
     artifact_name: str | None
-    summary: str
-    eligibility: str
-    tiers: list[ExplainTier]
-    example: ExplainExample
+    html_content: str
 
 
 @router.post("/artifacts/{artifact_id}/explain", response_model=ExplainResponse)
 async def explain_artifact(artifact_id: str, req: ExplainRequest, session: AsyncSession = Depends(get_db)):
-    """Generate a structured visual explanation for an artifact using real execution data."""
+    """Generate an HTML visual explanation for an artifact using real execution data."""
     result = await session.execute(select(SqlArtifact).where(SqlArtifact.id == artifact_id))
     artifact = result.scalar_one_or_none()
     if not artifact:
@@ -859,29 +795,30 @@ async def explain_artifact(artifact_id: str, req: ExplainRequest, session: Async
         f"{_fmt(base_result) if base_result else '(not available)'}"
     )
 
-    from llm import call_openai_structured
+    from llm import call_openai_with_tools
 
-    parsed = await call_openai_structured(
+    plan_seed = int(artifact.plan_id, 16) % (2**31)
+
+    response = await call_openai_with_tools(
         messages=[
             {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ],
-        json_schema=EXPLAIN_JSON_SCHEMA,
+        tools=[],
+        temperature=0,
+        seed=plan_seed,
     )
 
-    example_data = parsed.get("example", {})
+    html = (response.content or "").strip()
+    if html.startswith("```"):
+        html = "\n".join(html.split("\n")[1:])
+    if html.endswith("```"):
+        html = "\n".join(html.split("\n")[:-1])
+
     return ExplainResponse(
         artifact_id=artifact.id,
         artifact_name=artifact.name,
-        summary=parsed.get("summary", ""),
-        eligibility=parsed.get("eligibility", ""),
-        tiers=[ExplainTier(**t) for t in parsed.get("tiers", [])],
-        example=ExplainExample(
-            employee=example_data.get("employee", ""),
-            period=example_data.get("period", ""),
-            deals=[ExplainDeal(**d) for d in example_data.get("deals", [])],
-            steps=[ExplainStep(**s) for s in example_data.get("steps", [])],
-        ),
+        html_content=html or "<p>Unable to generate explanation.</p>",
     )
 
 

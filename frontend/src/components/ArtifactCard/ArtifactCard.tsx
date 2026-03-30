@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useExecuteArtifact, useUpdateArtifact, explainArtifact } from '../../actions/plans';
-import type { ExplainData } from '../../actions/plans';
 import type { ArtifactCardProps } from './ArtifactCard.types';
 import {
   Card,
@@ -17,37 +16,16 @@ import {
   RowCount,
   ErrorBox,
   LoadingBox,
-  ExplainPanel,
   ExplainLoading,
-  SummaryBar,
-  TierRow,
-  TierCard,
-  TierLabel,
-  TierRate,
-  ExampleHeader,
-  DealList,
-  DealItem,
-  StepList,
-  StepRow,
-  StepLabel,
-  StepFormula,
-  StepResult,
-  StepNote,
-  ProgressBarContainer,
-  ProgressBarFill,
-  ResultCallout,
+  ExplainHtml,
 } from './ArtifactCard.styles';
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(value);
-}
 
 export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
   const [view, setView] = useState<'data' | 'sql'>('data');
   const [collapsed, setCollapsed] = useState(false);
   const [editedSql, setEditedSql] = useState(artifact.sql_expression);
   const [showExplain, setShowExplain] = useState(false);
-  const [explainData, setExplainData] = useState<ExplainData | null>(null);
+  const [explainHtml, setExplainHtml] = useState<string | null>(null);
   const [explainLoading, setExplainLoading] = useState(false);
   const { data: result, isLoading, isError } = useExecuteArtifact(artifact.artifact_id, cycleId);
   const updateMutation = useUpdateArtifact(planId);
@@ -63,7 +41,7 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
   };
 
   const handleExplain = async () => {
-    if (showExplain && explainData) {
+    if (showExplain && explainHtml) {
       setShowExplain(false);
       return;
     }
@@ -71,9 +49,9 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
     setExplainLoading(true);
     try {
       const resp = await explainArtifact(artifact.artifact_id, cycleId);
-      setExplainData(resp);
+      setExplainHtml(resp.html_content);
     } catch {
-      setExplainData(null);
+      setExplainHtml(null);
     } finally {
       setExplainLoading(false);
     }
@@ -89,8 +67,6 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
       handleSave();
     }
   };
-
-  const finalStep = explainData?.example.steps.find((s) => s.is_final);
 
   return (
     <Card>
@@ -129,62 +105,12 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
       {!collapsed && showExplain && (
         <>
           {explainLoading && <ExplainLoading>Generating explanation...</ExplainLoading>}
-          {!explainLoading && explainData && (
-            <ExplainPanel>
-              <SummaryBar>
-                {explainData.summary}
-                <span>{explainData.eligibility}</span>
-              </SummaryBar>
-
-              {explainData.tiers.length > 0 && (
-                <TierRow>
-                  {explainData.tiers.map((tier) => (
-                    <TierCard key={tier.label} $active={tier.is_active}>
-                      <TierLabel>{tier.label}</TierLabel>
-                      <TierRate $active={tier.is_active}>{tier.rate}</TierRate>
-                    </TierCard>
-                  ))}
-                </TierRow>
-              )}
-
-              <ExampleHeader>Example: {explainData.example.employee}, {explainData.example.period}</ExampleHeader>
-
-              <DealList>
-                {explainData.example.deals.map((deal) => (
-                  <DealItem key={deal.id}>
-                    <span>{deal.id}</span>
-                    <span>{formatCurrency(deal.value)}</span>
-                    <span>{deal.date}</span>
-                  </DealItem>
-                ))}
-              </DealList>
-
-              <StepList>
-                {explainData.example.steps.map((step, i) => (
-                  <div key={i}>
-                    <StepRow $final={step.is_final}>
-                      <StepLabel>{step.label}</StepLabel>
-                      <StepFormula>{step.formula || ''}</StepFormula>
-                      <StepResult>{step.result}{step.note ? <StepNote> ({step.note})</StepNote> : null}</StepResult>
-                    </StepRow>
-                    {step.bar_pct != null && (
-                      <ProgressBarContainer>
-                        <ProgressBarFill $pct={step.bar_pct} />
-                      </ProgressBarContainer>
-                    )}
-                  </div>
-                ))}
-              </StepList>
-
-              {finalStep && (
-                <ResultCallout>
-                  <span>Commission</span>
-                  <span>{finalStep.result}</span>
-                </ResultCallout>
-              )}
-            </ExplainPanel>
+          {!explainLoading && explainHtml && (
+            <ExplainHtml>
+              <div className="explain-root" dangerouslySetInnerHTML={{ __html: explainHtml }} />
+            </ExplainHtml>
           )}
-          {!explainLoading && !explainData && (
+          {!explainLoading && !explainHtml && (
             <ExplainLoading>Failed to generate explanation.</ExplainLoading>
           )}
         </>

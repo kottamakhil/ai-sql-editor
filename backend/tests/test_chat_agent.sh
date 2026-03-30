@@ -179,7 +179,7 @@ HAS_CONFIG=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; print('config' in
 HAS_CYCLES=$(echo "$PLAN_FINAL" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cycles') is not None and len(d['cycles']) > 0)")
 [ "$HAS_CYCLES" = "True" ] && pass "Plan has cycles" || debug "No cycles (start/end dates may not have been set)"
 
-# ── Explain artifact ──
+# ── Explain artifact (HTML approach) ──
 step "Explain artifact"
 PAYOUT_ART_ID=$(echo "$PLAN_FINAL" | python3 -c "
 import sys, json
@@ -193,13 +193,10 @@ if [ -n "$PAYOUT_ART_ID" ]; then
       -H "Content-Type: application/json" \
       -d '{}')
     check_json "$EXPLAIN_RESP" "Explain"
-    HAS_SUMMARY=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('summary','')) > 10)")
-    [ "$HAS_SUMMARY" = "True" ] && pass "Got structured explanation with summary" || fail "Summary too short"
-    HAS_TIERS=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('tiers',[])) > 0)")
-    [ "$HAS_TIERS" = "True" ] && pass "Explanation has tiers" || debug "No tiers returned"
-    HAS_EXAMPLE=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print('employee' in json.load(sys.stdin).get('example',{}))")
-    [ "$HAS_EXAMPLE" = "True" ] && pass "Explanation has example walkthrough" || fail "No example in explanation"
-    debug "Summary: $(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary'])")"
+    HAS_HTML=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('html_content','')) > 50)")
+    [ "$HAS_HTML" = "True" ] && pass "Got HTML explanation" || fail "html_content too short"
+    HAS_STYLE=$(echo "$EXPLAIN_RESP" | python3 -c "import sys,json; print('<style' in json.load(sys.stdin).get('html_content',''))")
+    [ "$HAS_STYLE" = "True" ] && pass "HTML contains scoped styles" || debug "No <style> block in HTML"
 else
     debug "Skipped explain (no artifacts)"
 fi

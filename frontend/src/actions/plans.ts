@@ -85,17 +85,10 @@ export const executeSql = (data: { artifact_id?: string; sql_expression?: string
 
 // ---- Explain ----
 
-export interface ExplainDeal { id: string; value: number; date: string; }
-export interface ExplainStep { label: string; formula?: string; result: string; bar_pct?: number; note?: string; is_final?: boolean; }
-export interface ExplainTier { label: string; rate: string; is_active: boolean; }
-export interface ExplainExample { employee: string; period: string; deals: ExplainDeal[]; steps: ExplainStep[]; }
 export interface ExplainData {
   artifact_id: string;
   artifact_name: string | null;
-  summary: string;
-  eligibility: string;
-  tiers: ExplainTier[];
-  example: ExplainExample;
+  html_content: string;
 }
 
 export const explainArtifact = (artifactId: string, cycleId?: string) =>

@@ -29,3 +29,4 @@
 | F-2 | Supabase (PostgreSQL) — removed SQLite, now requires `DATABASE_URL` pointing to Postgres | DONE |
 | F-3 | Monorepo layout — moved backend code into `backend/`, reserving `client/` for frontend | DONE |
 | F-4 | Agentic tool calling — replaced regex-parsed LLM responses with OpenAI tool calling. Multi-turn loop with 4 tools: `update_sql_artifacts`, `update_plan`, `execute_query`, `validate_sql`. Self-healing on SQL errors. | DONE |
+| F-5 | Explain artifact (HTML approach) — LLM generates self-contained styled HTML explaining how the payout is calculated with tiers, example deals, step-by-step formula, and final result callout. Frontend renders via `dangerouslySetInnerHTML`. Prompt changes = visual changes, no React rebuild needed. | DONE |
