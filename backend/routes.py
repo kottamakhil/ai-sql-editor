@@ -698,6 +698,104 @@ async def _execute_with_cycle_filter(
     return await execute_raw_sql(filtered_sql, session)
 
 
+# --- Explain ---
+
+
+class ExplainRequest(BaseModel):
+    cycle_id: str | None = None
+
+
+class ExplainResponse(BaseModel):
+    artifact_id: str
+    artifact_name: str | None
+    explanation: str
+
+
+@router.post("/artifacts/{artifact_id}/explain", response_model=ExplainResponse)
+async def explain_artifact(artifact_id: str, req: ExplainRequest, session: AsyncSession = Depends(get_db)):
+    """Ask the LLM to explain what a payout artifact does, using real execution data."""
+    result = await session.execute(select(SqlArtifact).where(SqlArtifact.id == artifact_id))
+    artifact = result.scalar_one_or_none()
+    if not artifact:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+
+    plan_result = await session.execute(
+        select(SqlArtifact).where(SqlArtifact.plan_id == artifact.plan_id).order_by(SqlArtifact.created_at)
+    )
+    all_artifacts = list(plan_result.scalars())
+
+    plan = await load_plan(artifact.plan_id, session)
+
+    artifacts_context = "\n".join(
+        f"- {a.name}: {a.sql_expression}" for a in all_artifacts
+    )
+
+    payout_result = await execute_artifact(artifact, all_artifacts, session)
+    if req.cycle_id and not payout_result.error and "cycle_id" in payout_result.columns:
+        payout_result = await _execute_with_cycle_filter(artifact, all_artifacts, req.cycle_id, session)
+
+    base_artifact = next((a for a in all_artifacts if a.name and a.name != "payout" and a.name != artifact.name), None)
+    base_result = None
+    if base_artifact:
+        base_result = await execute_artifact(base_artifact, all_artifacts, session)
+        if req.cycle_id and not base_result.error and "cycle_id" in base_result.columns:
+            base_result = await _execute_with_cycle_filter(base_artifact, all_artifacts, req.cycle_id, session)
+
+    def _format_table(exec_res: ExecutionResult, max_rows: int = 20) -> str:
+        if exec_res.error or not exec_res.rows:
+            return "(no data)"
+        header = "| " + " | ".join(exec_res.columns) + " |"
+        rows = "\n".join(
+            "| " + " | ".join(str(c) for c in row) + " |"
+            for row in exec_res.rows[:max_rows]
+        )
+        return f"{header}\n{rows}"
+
+    payout_table = _format_table(payout_result)
+    base_table = _format_table(base_result) if base_result else "(not available)"
+
+    cycle_label = ""
+    if req.cycle_id and plan.cycles:
+        cycle = next((c for c in plan.cycles if c.id == req.cycle_id), None)
+        if cycle:
+            cycle_label = f"Period: {cycle.period_name}"
+
+    from llm import call_openai_with_tools
+
+    system_msg = (
+        "You are a compensation plan explainer. Given SQL artifacts and their execution results, "
+        "explain how this commission plan works. Pick one employee from the results to walk through "
+        "as a concrete example — choose one that best illustrates the calculation. "
+        "Write for a non-technical compensation admin. Use markdown."
+    )
+
+    user_msg = f"""Plan: {plan.name} ({plan.frequency})
+{cycle_label}
+
+SQL artifacts:
+{artifacts_context}
+
+Payout results:
+{payout_table}
+
+Source data ({base_artifact.name if base_artifact else 'base'}):
+{base_table}"""
+
+    response = await call_openai_with_tools(
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ],
+        tools=[],
+    )
+
+    return ExplainResponse(
+        artifact_id=artifact.id,
+        artifact_name=artifact.name,
+        explanation=response.content or "Unable to generate explanation.",
+    )
+
+
 # --- Plan preview ---
 
 
