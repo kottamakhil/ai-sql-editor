@@ -7,25 +7,71 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    FastAPI (routes.py)                    │
-│   Plan CRUD │ Artifact CRUD │ Skills │ Schema │ Execute  │
-│                    POST /api/chat                         │
+│               FastAPI (routes/ package)                   │
+│   routes/plans  │ routes/skills │ routes/chat             │
+│   routes/execution                                        │
 └──────────┬────────────────────────────────────────────────┘
            │
-     ┌─────▼──────┐     ┌──────────────┐
-     │ chat_service│────▶│   agent.py    │ ◄── tool loop
-     └─────┬──────┘     │  (max 10 iter)│
-           │            └──────┬───────┘
-           │                   │
-     ┌─────▼──────┐     ┌─────▼────────────────────────┐
-     │ PostgreSQL  │     │  tools/ (via PlanServiceBase) │
-     │ (Supabase)  │     │  create_plan, update_plan      │
-     │             │◄────│  update_sql_artifacts           │
-     │ 13 tables   │     │  update_plan_config             │
-     │             │     │  infer_plan_config              │
-     │             │     │  execute_query, validate_sql    │
-     │             │     │  ask_clarification              │
-     └────────────┘     └──────────────────────────────┘
+     ┌─────▼──────────┐     ┌──────────────────┐
+     │ agent/          │────▶│  agent/loop.py    │ ◄── tool loop
+     │ chat_service.py │     │  (max 10 iter)    │
+     └─────┬──────────┘     └──────┬───────────┘
+           │                       │
+     ┌─────▼──────────┐     ┌─────▼────────────────────────┐
+     │ services/       │     │  tools/ (via PlanServiceBase) │
+     │ executor.py     │     │  create_plan, update_plan      │
+     │ data_access.py  │◄────│  update_sql_artifacts           │
+     │ plan_service.py │     │  update_plan_config             │
+     │ (PostgreSQL)    │     │  infer_plan_config              │
+     └────────────────┘     │  execute_query, validate_sql    │
+                            │  ask_clarification              │
+                            └──────────────────────────────┘
+```
+
+## Backend Package Layout
+
+```
+backend/
+├── main.py                  # App bootstrap, middleware, lifespan
+├── database.py              # Async engine + session factory
+├── llm.py                   # OpenAI client wrapper
+├── seed.py                  # Demo data seeder
+├── middleware.py             # RequestID middleware
+├── logging_config.py        # JSON logging + Datadog
+│
+├── models/                  # SQLAlchemy ORM models
+│   ├── base.py              # DeclarativeBase, _new_id()
+│   ├── business.py          # Employee, Deal, Quota
+│   ├── plan.py              # Plan, PlanConfig, PlanCycle, SqlArtifact, PlanTemplate
+│   ├── skill.py             # Skill, SkillVersion
+│   └── conversation.py      # Conversation, ConversationMessage, ChatFile
+│
+├── schemas/                 # Pydantic request/response DTOs
+│   ├── plan.py              # Plan, artifact, config, lineage DTOs
+│   ├── skill.py             # Skill DTOs
+│   ├── chat.py              # Chat, conversation, clarification DTOs
+│   └── execution.py         # Execute + preview DTOs
+│
+├── routes/                  # Thin API handlers
+│   ├── plans.py             # Plan CRUD + config + artifacts + preview + lineage + templates
+│   ├── skills.py            # Skill CRUD
+│   ├── chat.py              # POST /chat + conversations + file upload
+│   └── execution.py         # POST /execute + GET /schema
+│
+├── services/                # Business logic layer
+│   ├── plan_service.py      # PlanServiceBase ABC
+│   ├── sqlalchemy_plan_service.py  # PostgreSQL implementation
+│   ├── executor.py          # CTE composition + SQL execution
+│   └── data_access.py       # load_plan(), get_schema_ddls()
+│
+├── agent/                   # AI agent layer
+│   ├── loop.py              # run_agent_loop(), AgentResult
+│   ├── prompts.py           # System prompts (agent + explain)
+│   └── chat_service.py      # process_chat() orchestrator
+│
+└── tools/                   # Agent tools (one per file)
+    ├── base.py, create_plan.py, update_plan.py, ...
+    └── ask_clarification.py
 ```
 
 ## Key Design Decisions

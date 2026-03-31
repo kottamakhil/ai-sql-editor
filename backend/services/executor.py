@@ -82,9 +82,8 @@ def _find_references(sql: str, named_artifacts: dict[str, SqlArtifact]) -> list[
 
 
 def build_lineage_dag(artifacts: list[SqlArtifact]) -> dict:
-    """Build a DAG of artifact dependencies for FE visualization."""
     named = {a.name: a for a in artifacts if a.name}
-    final = _find_final_artifact(artifacts) if artifacts else None
+    _find_final_artifact(artifacts) if artifacts else None
 
     nodes = []
     for a in artifacts:

@@ -1,33 +1,36 @@
-"""Service layer for the /chat endpoint.
-
-Orchestrates the agent loop, persists conversation messages,
-and returns a structured ChatResult for the route handler.
-"""
-
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from dataclasses import dataclass
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from agent import AgentResult, build_system_prompt, run_agent_loop
-from models import Conversation, ConversationMessage, ConversationSkillVersion, Plan, Skill, SkillVersion, SqlArtifact
+from agent.loop import AgentResult, run_agent_loop
+from agent.prompts import build_system_prompt
+from models import (
+    ChatFile,
+    Conversation,
+    ConversationMessage,
+    ConversationSkillVersion,
+    Plan,
+    PlanTemplate,
+    Skill,
+    SkillVersion,
+    SqlArtifact,
+)
+from services.data_access import get_schema_ddls
 from services.sqlalchemy_plan_service import SqlAlchemyPlanService
 
 log = logging.getLogger(__name__)
 
-BUSINESS_TABLES = {"employees", "deals", "quotas", "plan_cycles"}
-
 
 @dataclass
 class ChatResult:
-    """Structured output from a single chat turn."""
-
     response_text: str
     conversation_id: str
     composed_sql: str | None
@@ -43,8 +46,6 @@ async def process_chat(
     skill_ids: list[str] | None = None,
     file_ids: list[str] | None = None,
 ) -> ChatResult:
-    """Run a full chat turn: load context, invoke agent, persist, return result."""
-
     is_new_conversation = conversation_id is None
     conversation = await _get_or_create_conversation(conversation_id, session)
 
@@ -56,7 +57,7 @@ async def process_chat(
         plan = await _load_plan(conversation.plan_id, session)
 
     plan_service = SqlAlchemyPlanService(session, plan)
-    schema_ddls = await _get_schema_ddls(session)
+    schema_ddls = await get_schema_ddls(session)
     skills_dict = await _load_conversation_skills(conversation.id, session)
 
     plan_dict = await plan_service.get_plan()
@@ -119,8 +120,6 @@ async def process_chat(
 
 
 def _load_history(conversation: Conversation) -> list[dict]:
-    """Filter conversation messages to only user + final assistant (no tool calls)."""
-
     return [
         m.to_openai_message() for m in conversation.messages
         if m.role in ("user", "assistant") and not m.tool_calls_json
@@ -128,8 +127,6 @@ def _load_history(conversation: Conversation) -> list[dict]:
 
 
 def _compose_sql(artifacts: list[dict]) -> str | None:
-    """Build a WITH/CTE query from artifact dicts."""
-
     if not artifacts:
         return None
 
@@ -157,8 +154,6 @@ async def _save_conversation_messages(
     all_messages: list[dict],
     history: list[dict],
 ) -> None:
-    """Persist the user message and all agent-generated messages."""
-
     new_msg_start = len(history) + 2
 
     session.add(ConversationMessage(
@@ -184,12 +179,8 @@ async def _build_user_content(
     file_ids: list[str] | None,
     session: AsyncSession,
 ) -> str | list[dict]:
-    """Build the user message content -- plain text or multimodal with file attachments."""
     if not file_ids:
         return message
-
-    import base64
-    from models import ChatFile
 
     parts: list[dict] = [{"type": "text", "text": message}]
 
@@ -217,8 +208,6 @@ async def _build_user_content(
 
 
 async def _load_active_template(session: AsyncSession) -> str | None:
-    """Load the most recently created plan template, or None."""
-    from models import PlanTemplate
     result = await session.execute(
         select(PlanTemplate).order_by(PlanTemplate.created_at.desc()).limit(1)
     )
@@ -226,12 +215,7 @@ async def _load_active_template(session: AsyncSession) -> str | None:
     return tpl.content if tpl else None
 
 
-# --- Data access helpers ---
-
-
 async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
-    """Load a plan with its artifacts eagerly loaded."""
-
     result = await session.execute(
         select(Plan).options(
             selectinload(Plan.artifacts), selectinload(Plan.config),
@@ -247,8 +231,6 @@ async def _load_plan(plan_id: str, session: AsyncSession) -> Plan:
 async def _pin_skills_to_conversation(
     conversation_id: str, skill_ids: list[str], session: AsyncSession,
 ) -> None:
-    """Resolve skill_ids to latest versions and pin them to the conversation."""
-
     for sid in skill_ids:
         result = await session.execute(
             select(SkillVersion)
@@ -265,8 +247,6 @@ async def _pin_skills_to_conversation(
 
 
 async def _load_conversation_skills(conversation_id: str, session: AsyncSession) -> list[dict]:
-    """Load skill versions pinned to a conversation."""
-
     result = await session.execute(
         select(Skill.name, SkillVersion.content)
         .select_from(ConversationSkillVersion)
@@ -277,38 +257,10 @@ async def _load_conversation_skills(conversation_id: str, session: AsyncSession)
     return [{"name": name, "content": content} for name, content in result.all()]
 
 
-async def _get_schema_ddls(session: AsyncSession) -> list[str]:
-    """Fetch CREATE TABLE DDLs for business tables from information_schema."""
-
-    placeholders = ", ".join(f":t{i}" for i in range(len(BUSINESS_TABLES)))
-    params = {f"t{i}": name for i, name in enumerate(BUSINESS_TABLES)}
-    stmt = text(
-        "SELECT table_name, column_name, data_type, is_nullable "
-        "FROM information_schema.columns "
-        f"WHERE table_schema = 'public' AND table_name IN ({placeholders}) "
-        "ORDER BY table_name, ordinal_position"
-    )
-    result = await session.execute(stmt, params)
-    rows = result.fetchall()
-
-    tables: dict[str, list[str]] = {}
-    for table_name, col_name, data_type, nullable in rows:
-        tables.setdefault(table_name, [])
-        null_str = "" if nullable == "YES" else " NOT NULL"
-        tables[table_name].append(f"  {col_name} {data_type.upper()}{null_str}")
-
-    return [
-        f"CREATE TABLE {name} (\n" + ",\n".join(cols) + "\n)"
-        for name, cols in tables.items()
-    ]
-
-
 async def _get_or_create_conversation(
     conversation_id: str | None,
     session: AsyncSession,
 ) -> Conversation:
-    """Load an existing conversation or create a new one (no plan_id required)."""
-
     if conversation_id:
         result = await session.execute(
             select(Conversation)

@@ -1,9 +1,3 @@
-"""Agent loop orchestrator.
-
-Calls the LLM with tools, dispatches tool calls, loops until done.
-Portable across storage backends -- depends only on PlanServiceBase.
-"""
-
 from __future__ import annotations
 
 import json
@@ -38,114 +32,12 @@ class AgentResult:
     plan: dict | None = None
 
 
-def build_system_prompt(
-    plan: dict | None,
-    artifacts: list[dict],
-    skills: list[dict],
-    schema_ddls: list[str],
-    plan_template: str | None = None,
-    inferred_config: str | None = None,
-) -> str:
-    """Build the system prompt from plain dicts (no ORM dependency)."""
-
-    tables_block = "\n\n".join(schema_ddls)
-
-    skills_block = ""
-    if skills:
-        skills_block = "\n".join(f"- {s['name']}: {s['content']}" for s in skills)
-
-    if plan:
-        plan_block = f"Name: {plan['name']}\nType: {plan['plan_type']}\nFrequency: {plan['frequency']}"
-        cfg = plan.get("config", {})
-        payout = cfg.get("payout", {})
-        payroll = cfg.get("payroll", {})
-        disputes = cfg.get("disputes", {})
-        config_block = (
-            f"Payout: automatic={payout.get('is_automatic_payout_enabled', False)}, "
-            f"offset={payout.get('final_payment_offset')}, "
-            f"draws={payout.get('is_draws_enabled', False)}, "
-            f"draw_frequency={payout.get('draw_frequency')}\n"
-            f"Payroll: payout_type={payroll.get('payout_type')}\n"
-            f"Disputes: enabled={disputes.get('is_disputes_enabled', True)}"
-        )
-    else:
-        plan_block = "No plan exists yet."
-        config_block = "N/A"
-
-    artifacts_block = ""
-    if artifacts:
-        lines = [f'- name: "{a["name"]}", sql: "{a["sql"]}"' for a in artifacts]
-        artifacts_block = "\n".join(lines)
-
-    return f"""You are an AI SQL assistant for building commission plans.
-
-You have tools available to create plans, modify plan metadata and config, update SQL artifacts,
-execute queries, and validate SQL. Use them as needed to fulfill the user's request.
-
-<available_tables>
-{tables_block}
-</available_tables>
-
-<skills>
-{skills_block}
-</skills>
-
-<current_plan>
-{plan_block}
-</current_plan>
-
-<current_plan_config>
-{config_block}
-</current_plan_config>
-
-<current_sql_artifacts>
-{artifacts_block}
-</current_sql_artifacts>
-
-<plan_template>
-{plan_template or "No plan template configured."}
-</plan_template>
-
-<current_inferred_config>
-{inferred_config or "No inferred config yet."}
-</current_inferred_config>
-
-Guidelines:
-- If no plan exists and the user wants to build commission SQL, call create_plan first.
-- When building or modifying commission SQL, use the update_sql_artifacts tool.
-- Always provide the COMPLETE set of artifacts. The system replaces all on each call.
-- Decompose complex queries into named CTE artifacts (e.g. "base_deals", "commissions").
-- The final artifact must always be named "payout".
-- Use execute_query to explore data or answer questions about the dataset.
-- Use validate_sql to check SQL correctness before committing artifacts.
-- Use update_plan to change plan name, type, or frequency.
-- Use update_plan_config to configure payout timing, payroll integration, or dispute settings.
-- When creating plans, infer start_date and end_date from the user's request.
-- JOIN with plan_cycles to group results by period. Include cycle_id and period_name
-  in the output so the system can filter by period at preview time.
-  Example: JOIN plan_cycles pc ON d.closed_date >= pc.start_date AND d.closed_date <= pc.end_date
-           WHERE pc.plan_id = '<plan_id>'
-- If a plan_template is provided, use infer_plan_config to fill in the template based on the
-  conversation. Mark confirmed values normally, add "# inferred -- please confirm" for guesses,
-  and use "TODO" for unknowns. Update the inferred config on each turn as you learn more.
-- If a tool returns an error, fix the issue and retry.
-- In your final response, always include the full composed SQL that combines all
-  artifacts into a single WITH/CTE statement inside a ```sql code block.
-- If the user's request is missing critical details (commission rate, deal filter,
-  threshold, frequency), use ask_clarification to get structured answers with options.
-- Only ask about genuinely ambiguous things. If you can make a reasonable default, proceed.
-- Group related questions together in a single ask_clarification call.
-- Do NOT ask clarification if the user is modifying an existing plan and the intent is clear."""
-
-
 async def run_agent_loop(
     messages: list[dict],
     plan_service: PlanServiceBase,
     skills: list[dict],
     schema_ddls: list[str],
 ) -> AgentResult:
-    """Run the tool-calling loop until the LLM stops or max iterations."""
-
     context = ToolContext(
         plan_service=plan_service,
         skills=skills,
@@ -239,7 +131,6 @@ async def run_agent_loop(
 
 
 def _extract_clarification(tool_calls: list[ToolCallRecord]) -> list[dict] | None:
-    """Return questions if the most recent batch included ask_clarification."""
     for tc in reversed(tool_calls):
         if tc.tool_name == CLARIFICATION_TOOL_NAME and tc.result.success:
             return tc.result.data.get("questions", [])

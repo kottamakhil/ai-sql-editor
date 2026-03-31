@@ -12,8 +12,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from executor import execute_artifact, execute_raw_sql
 from models import Plan, SqlArtifact
+from services.executor import execute_artifact, execute_raw_sql
 from services.plan_service import PlanServiceBase
 
 log = logging.getLogger(__name__)
