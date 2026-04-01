@@ -1,13 +1,14 @@
-import { HARDCODED_EMPLOYEE, formatCurrency } from './HiringFlow.types';
+import type { WizardState } from './HiringFlow.types';
+import { COMPENSATION_DEFAULTS, formatCurrency } from './HiringFlow.types';
 import {
   StepContainer,
   SectionTitle,
   SectionSubtitle,
-  EmployeeCard,
-  Avatar,
-  EmployeeInfo,
-  EmployeeName,
-  EmployeeRole,
+  FormGrid,
+  FormField,
+  FieldLabel,
+  TextInput,
+  SubHeading,
   DetailRow,
   DetailLabel,
   DetailValue,
@@ -19,13 +20,19 @@ import {
 } from './CompensationStep.styles';
 
 interface CompensationStepProps {
-  hasUpFrontPayments: boolean | null;
-  onChangeUpFront: (val: boolean) => void;
+  state: WizardState;
+  onChange: (partial: Partial<WizardState>) => void;
   onContinue: () => void;
 }
 
-export function CompensationStep({ hasUpFrontPayments, onChangeUpFront, onContinue }: CompensationStepProps) {
-  const emp = HARDCODED_EMPLOYEE;
+export function CompensationStep({ state, onChange, onContinue }: CompensationStepProps) {
+  const comp = COMPENSATION_DEFAULTS;
+  const { employeeName, employeeDepartment, employeeRole, employeeStartDate, hasUpFrontPayments } = state;
+
+  const canContinue =
+    hasUpFrontPayments === true &&
+    employeeName.trim().length > 0 &&
+    employeeStartDate.length > 0;
 
   return (
     <StepContainer>
@@ -34,32 +41,56 @@ export function CompensationStep({ hasUpFrontPayments, onChangeUpFront, onContin
         Configure compensation for the new hire. This information will be included in their offer letter.
       </SectionSubtitle>
 
-      <EmployeeCard>
-        <Avatar>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-        </Avatar>
-        <EmployeeInfo>
-          <EmployeeName>{emp.name}</EmployeeName>
-          <EmployeeRole>{emp.role} · {emp.department}</EmployeeRole>
-        </EmployeeInfo>
-      </EmployeeCard>
+      <SubHeading style={{ marginTop: 0 }}>Employee Details</SubHeading>
+      <FormGrid>
+        <FormField>
+          <FieldLabel>Full Name</FieldLabel>
+          <TextInput
+            value={employeeName}
+            onChange={(e) => onChange({ employeeName: e.target.value })}
+            placeholder="Sarah Chen"
+          />
+        </FormField>
+        <FormField>
+          <FieldLabel>Role</FieldLabel>
+          <TextInput
+            value={employeeRole}
+            onChange={(e) => onChange({ employeeRole: e.target.value })}
+            placeholder="Senior Software Engineer"
+          />
+        </FormField>
+        <FormField>
+          <FieldLabel>Department</FieldLabel>
+          <TextInput
+            value={employeeDepartment}
+            onChange={(e) => onChange({ employeeDepartment: e.target.value })}
+            placeholder="Engineering"
+          />
+        </FormField>
+        <FormField>
+          <FieldLabel>Start Date</FieldLabel>
+          <TextInput
+            type="date"
+            value={employeeStartDate}
+            onChange={(e) => onChange({ employeeStartDate: e.target.value })}
+          />
+        </FormField>
+      </FormGrid>
 
+      <SubHeading>Compensation Package</SubHeading>
       <DetailRow>
         <DetailLabel>Annual Salary</DetailLabel>
-        <DetailValue>{formatCurrency(emp.annualSalary)}</DetailValue>
+        <DetailValue>{formatCurrency(comp.annualSalary)}</DetailValue>
       </DetailRow>
       <DetailRow>
         <DetailLabel>Equity Grant</DetailLabel>
         <DetailValue>
-          {emp.equityOptions.toLocaleString()} options · {emp.equityVestYears}-year vest, {emp.equityCliffYears}-year cliff
+          {comp.equityOptions.toLocaleString()} options · {comp.equityVestYears}-year vest, {comp.equityCliffYears}-year cliff
         </DetailValue>
       </DetailRow>
       <DetailRow>
         <DetailLabel>Target Bonus</DetailLabel>
-        <DetailValue>{emp.targetBonusPercent}% of base salary</DetailValue>
+        <DetailValue>{comp.targetBonusPercent}% of base salary</DetailValue>
       </DetailRow>
 
       <QuestionBlock>
@@ -71,7 +102,7 @@ export function CompensationStep({ hasUpFrontPayments, onChangeUpFront, onContin
             type="radio"
             name="upfront"
             checked={hasUpFrontPayments === true}
-            onChange={() => onChangeUpFront(true)}
+            onChange={() => onChange({ hasUpFrontPayments: true })}
           />
           Yes, they will have up-front payments
         </RadioOption>
@@ -80,17 +111,14 @@ export function CompensationStep({ hasUpFrontPayments, onChangeUpFront, onContin
             type="radio"
             name="upfront"
             checked={hasUpFrontPayments === false}
-            onChange={() => onChangeUpFront(false)}
+            onChange={() => onChange({ hasUpFrontPayments: false })}
           />
           No, they will not have any up-front payments
         </RadioOption>
       </QuestionBlock>
 
       <ActionRow>
-        <PrimaryButton
-          disabled={hasUpFrontPayments !== true}
-          onClick={onContinue}
-        >
+        <PrimaryButton disabled={!canContinue} onClick={onContinue}>
           Continue
         </PrimaryButton>
       </ActionRow>

@@ -1,17 +1,20 @@
 export type ScheduleType = 'lump_sum' | 'installments' | 'recurring';
-export type TriggerType = 'next_payroll_run' | 'months_after_start' | 'specific_date';
-export type RecurringFrequency = 'monthly' | 'quarterly' | 'semi-annually' | 'annually';
+export type TriggerType = 'next_payroll_run' | 'months_after_start';
+export type RecurringFrequency = 'monthly' | 'quarterly' | 'annually';
 
 export interface Tranche {
   id: string;
   amountPercent: number;
   trigger: TriggerType;
   monthsAfterStart?: number;
-  specificDate?: string;
 }
 
 export interface WizardState {
   step: 1 | 2 | 3 | 4;
+  employeeName: string;
+  employeeDepartment: string;
+  employeeRole: string;
+  employeeStartDate: string;
   hasUpFrontPayments: boolean | null;
   calculationAmount: number;
   scheduleType: ScheduleType;
@@ -20,10 +23,7 @@ export interface WizardState {
   recurringDurationYears: number;
 }
 
-export const HARDCODED_EMPLOYEE = {
-  name: 'Sarah Chen',
-  role: 'Senior Software Engineer',
-  department: 'Engineering',
+export const COMPENSATION_DEFAULTS = {
   annualSalary: 185000,
   equityOptions: 10000,
   equityVestYears: 4,
@@ -34,13 +34,11 @@ export const HARDCODED_EMPLOYEE = {
 export const TRIGGER_LABELS: Record<TriggerType, string> = {
   next_payroll_run: 'Next payroll run',
   months_after_start: 'Months after start date',
-  specific_date: 'Specific date',
 };
 
 export const FREQUENCY_LABELS: Record<RecurringFrequency, string> = {
   monthly: 'monthly',
   quarterly: 'quarterly',
-  'semi-annually': 'semi-annually',
   annually: 'annually',
 };
 
@@ -57,7 +55,6 @@ export function getFrequencyPaymentsPerYear(freq: RecurringFrequency): number {
   switch (freq) {
     case 'monthly': return 12;
     case 'quarterly': return 4;
-    case 'semi-annually': return 2;
     case 'annually': return 1;
   }
 }
@@ -85,6 +82,10 @@ export function generateRecurringTranches(
 
 export const DEFAULT_WIZARD_STATE: WizardState = {
   step: 1,
+  employeeName: '',
+  employeeDepartment: '',
+  employeeRole: '',
+  employeeStartDate: '',
   hasUpFrontPayments: null,
   calculationAmount: 20000,
   scheduleType: 'lump_sum',

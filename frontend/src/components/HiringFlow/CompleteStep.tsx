@@ -1,6 +1,5 @@
 import type { WizardState } from './HiringFlow.types';
 import {
-  HARDCODED_EMPLOYEE,
   formatCurrency,
   getFrequencyPaymentsPerYear,
 } from './HiringFlow.types';
@@ -21,7 +20,7 @@ interface CompleteStepProps {
 }
 
 export function CompleteStep({ state, onViewObligations, onAddAnother }: CompleteStepProps) {
-  const { calculationAmount, scheduleType, recurringFrequency, recurringDurationYears } = state;
+  const { employeeName, calculationAmount, scheduleType, recurringFrequency, recurringDurationYears } = state;
 
   const paymentCount = scheduleType === 'recurring'
     ? getFrequencyPaymentsPerYear(recurringFrequency) * recurringDurationYears
@@ -36,7 +35,7 @@ export function CompleteStep({ state, onViewObligations, onAddAnother }: Complet
           <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </CheckCircle>
-      <Heading>Offer Sent to {HARDCODED_EMPLOYEE.name}</Heading>
+      <Heading>Offer Sent to {employeeName}</Heading>
       <SubText>
         {paymentCount} payment obligation{paymentCount !== 1 ? 's' : ''} {paymentCount !== 1 ? 'have' : 'has'} been
         created for the {formatCurrency(calculationAmount)} sign-on bonus.

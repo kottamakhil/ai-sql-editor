@@ -9,6 +9,12 @@ import { PaymentPlanStep } from '../../components/HiringFlow/PaymentPlanStep';
 import { ReviewStep } from '../../components/HiringFlow/ReviewStep';
 import { CompleteStep } from '../../components/HiringFlow/CompleteStep';
 import {
+  createEmployee,
+  createPaymentSchedule,
+  type CreatePaymentScheduleData,
+  type TrancheInput,
+} from '../../actions/employees';
+import {
   PageWrapper,
   TopBar,
   Logo,
@@ -25,9 +31,39 @@ import {
   PageHeading,
 } from './HiringFlow.styles';
 
+function buildSchedulePayload(state: WizardState, employeeId: string): CreatePaymentScheduleData {
+  const base: CreatePaymentScheduleData = {
+    employee_id: employeeId,
+    name: 'Sign-On Bonus',
+    schedule_type: state.scheduleType,
+    total_amount: state.calculationAmount,
+  };
+
+  if (state.scheduleType === 'recurring') {
+    base.frequency = state.recurringFrequency;
+    base.duration_months = state.recurringDurationYears * 12;
+  }
+
+  if (state.scheduleType === 'installments') {
+    base.tranches = state.tranches.map((t): TrancheInput => ({
+      amount_pct: t.amountPercent,
+      trigger_type: t.trigger,
+      trigger_months: t.trigger === 'months_after_start' ? (t.monthsAfterStart ?? null) : null,
+    }));
+  }
+
+  if (state.scheduleType === 'lump_sum') {
+    base.tranches = [{ amount_pct: 100, trigger_type: 'next_payroll_run' }];
+  }
+
+  return base;
+}
+
 export function HiringFlow() {
   const navigate = useNavigate();
   const [state, setState] = useState<WizardState>({ ...DEFAULT_WIZARD_STATE });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const update = useCallback((partial: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...partial }));
@@ -38,7 +74,30 @@ export function HiringFlow() {
       ...DEFAULT_WIZARD_STATE,
       tranches: [createTranche({ amountPercent: 50 }), createTranche({ amountPercent: 50 })],
     });
+    setSubmitError(null);
   }, []);
+
+  const handleSendOffer = useCallback(async () => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const employee = await createEmployee({
+        name: state.employeeName,
+        department: state.employeeDepartment || 'General',
+        role: state.employeeRole || 'Employee',
+        start_date: state.employeeStartDate,
+      });
+
+      const schedulePayload = buildSchedulePayload(state, employee.employee_id);
+      await createPaymentSchedule(schedulePayload);
+
+      setState((prev) => ({ ...prev, step: 4 }));
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [state]);
 
   return (
     <PageWrapper>
@@ -113,8 +172,8 @@ export function HiringFlow() {
 
             {state.step === 1 && (
               <CompensationStep
-                hasUpFrontPayments={state.hasUpFrontPayments}
-                onChangeUpFront={(val) => update({ hasUpFrontPayments: val })}
+                state={state}
+                onChange={update}
                 onContinue={() => update({ step: 2 })}
               />
             )}
@@ -132,7 +191,9 @@ export function HiringFlow() {
               <ReviewStep
                 state={state}
                 onBack={() => update({ step: 2 })}
-                onSendOffer={() => update({ step: 4 })}
+                onSendOffer={handleSendOffer}
+                isSubmitting={isSubmitting}
+                error={submitError}
               />
             )}
 

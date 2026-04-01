@@ -1,6 +1,6 @@
 import type { WizardState } from './HiringFlow.types';
 import {
-  HARDCODED_EMPLOYEE,
+  COMPENSATION_DEFAULTS,
   formatCurrency,
   TRIGGER_LABELS,
   FREQUENCY_LABELS,
@@ -37,6 +37,8 @@ interface ReviewStepProps {
   state: WizardState;
   onBack: () => void;
   onSendOffer: () => void;
+  isSubmitting?: boolean;
+  error?: string | null;
 }
 
 const SCHEDULE_LABEL: Record<string, string> = {
@@ -45,9 +47,9 @@ const SCHEDULE_LABEL: Record<string, string> = {
   recurring: 'Recurring',
 };
 
-export function ReviewStep({ state, onBack, onSendOffer }: ReviewStepProps) {
-  const emp = HARDCODED_EMPLOYEE;
-  const { calculationAmount, scheduleType, tranches, recurringFrequency, recurringDurationYears } = state;
+export function ReviewStep({ state, onBack, onSendOffer, isSubmitting, error }: ReviewStepProps) {
+  const comp = COMPENSATION_DEFAULTS;
+  const { employeeName, employeeRole, employeeDepartment, calculationAmount, scheduleType, tranches, recurringFrequency, recurringDurationYears } = state;
 
   const effectiveTranches = scheduleType === 'recurring'
     ? generateRecurringTranches(recurringFrequency, recurringDurationYears)
@@ -77,7 +79,7 @@ export function ReviewStep({ state, onBack, onSendOffer }: ReviewStepProps) {
     <StepContainer>
       <SectionTitle>Review Offer</SectionTitle>
       <SectionSubtitle>
-        Confirm the details below before sending the offer to Sarah Chen.
+        Confirm the details below before sending the offer to {employeeName || 'the employee'}.
       </SectionSubtitle>
 
       <ReviewCard>
@@ -89,23 +91,23 @@ export function ReviewStep({ state, onBack, onSendOffer }: ReviewStepProps) {
             </svg>
           </Avatar>
           <HeaderInfo>
-            <HeaderName>{emp.name}</HeaderName>
-            <HeaderRole>{emp.role} · {emp.department}</HeaderRole>
+            <HeaderName>{employeeName}</HeaderName>
+            <HeaderRole>{employeeRole}{employeeRole && employeeDepartment ? ' · ' : ''}{employeeDepartment}</HeaderRole>
           </HeaderInfo>
         </CardHeader>
         <DetailRow>
           <DetailLabel>Annual Salary</DetailLabel>
-          <DetailValue>{formatCurrency(emp.annualSalary)}</DetailValue>
+          <DetailValue>{formatCurrency(comp.annualSalary)}</DetailValue>
         </DetailRow>
         <DetailRow>
           <DetailLabel>Equity</DetailLabel>
           <DetailValue>
-            {emp.equityOptions.toLocaleString()} options ({emp.equityVestYears}y vest, {emp.equityCliffYears}y cliff)
+            {comp.equityOptions.toLocaleString()} options ({comp.equityVestYears}y vest, {comp.equityCliffYears}y cliff)
           </DetailValue>
         </DetailRow>
         <DetailRow>
           <DetailLabel>Target Bonus</DetailLabel>
-          <DetailValue>{emp.targetBonusPercent}% of base</DetailValue>
+          <DetailValue>{comp.targetBonusPercent}% of base</DetailValue>
         </DetailRow>
       </ReviewCard>
 
@@ -135,7 +137,7 @@ export function ReviewStep({ state, onBack, onSendOffer }: ReviewStepProps) {
           What happens next
         </InfoTitle>
         <InfoText>
-          When Sarah accepts the offer, {totalPayments} payment obligation{totalPayments !== 1 ? 's' : ''} will
+          When {employeeName || 'the employee'} accepts the offer, {totalPayments} payment obligation{totalPayments !== 1 ? 's' : ''} will
           be created for the {formatCurrency(calculationAmount)} sign-on bonus.
           {scheduleType === 'recurring'
             ? ` Payments will recur ${FREQUENCY_LABELS[recurringFrequency]} for ${recurringDurationYears} year${recurringDurationYears !== 1 ? 's' : ''}.`
@@ -145,9 +147,17 @@ export function ReviewStep({ state, onBack, onSendOffer }: ReviewStepProps) {
         </InfoText>
       </InfoBox>
 
+      {error && (
+        <div style={{ marginTop: 12, padding: '10px 16px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontSize: 13 }}>
+          {error}
+        </div>
+      )}
+
       <ActionRow>
-        <SecondaryButton onClick={onBack}>Back</SecondaryButton>
-        <PrimaryButton onClick={onSendOffer}>Send Offer</PrimaryButton>
+        <SecondaryButton onClick={onBack} disabled={isSubmitting}>Back</SecondaryButton>
+        <PrimaryButton onClick={onSendOffer} disabled={isSubmitting}>
+          {isSubmitting ? 'Submitting...' : 'Send Offer'}
+        </PrimaryButton>
       </ActionRow>
     </StepContainer>
   );

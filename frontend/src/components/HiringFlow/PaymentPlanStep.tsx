@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type {
-  ScheduleType,
   Tranche,
   TriggerType,
   RecurringFrequency,
@@ -47,7 +46,6 @@ import {
   SecondaryButton,
   ScheduleHeading,
   PaymentCount,
-  DateInput,
 } from './PaymentPlanStep.styles';
 
 function Dropdown<T extends string>({
@@ -123,8 +121,8 @@ interface PaymentPlanStepProps {
   onContinue: () => void;
 }
 
-const TRIGGER_OPTIONS: TriggerType[] = ['next_payroll_run', 'months_after_start', 'specific_date'];
-const FREQUENCY_OPTIONS: RecurringFrequency[] = ['monthly', 'quarterly', 'semi-annually', 'annually'];
+const TRIGGER_OPTIONS: TriggerType[] = ['next_payroll_run', 'months_after_start'];
+const FREQUENCY_OPTIONS: RecurringFrequency[] = ['monthly', 'quarterly', 'annually'];
 
 export function PaymentPlanStep({ state, onChange, onBack, onContinue }: PaymentPlanStepProps) {
   const { calculationAmount, scheduleType, tranches, recurringFrequency, recurringDurationYears } = state;
@@ -161,7 +159,7 @@ export function PaymentPlanStep({ state, onChange, onBack, onContinue }: Payment
     <StepContainer>
       <SectionTitle>Payment Obligation</SectionTitle>
       <SectionSubtitle>
-        Configure the payment plan for Sarah Chen. Set type, amount, schedule, and conditions below.
+        Configure the payment plan for the employee. Set type, amount, schedule, and conditions below.
       </SectionSubtitle>
 
       <SubHeading>Plan Settings</SubHeading>
@@ -358,18 +356,6 @@ function InstallmentsView({
                     placeholder="6"
                   />
                   <UnitLabel>months after start</UnitLabel>
-                </TrancheFieldRow>
-              )}
-              {tranche.trigger === 'specific_date' && (
-                <TrancheFieldRow>
-                  <TrancheLabel />
-                  <DateInput
-                    type="date"
-                    value={tranche.specificDate ?? ''}
-                    onChange={(e) =>
-                      onUpdate(tranche.id, { specificDate: e.target.value })
-                    }
-                  />
                 </TrancheFieldRow>
               )}
             </TrancheBody>

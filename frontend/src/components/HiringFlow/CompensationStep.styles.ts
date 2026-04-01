@@ -78,6 +78,54 @@ export const DetailValue = styled.span`
   text-align: right;
 `;
 
+export const FormGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 8px;
+`;
+
+export const FormField = styled.div<{ $span?: number }>`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  grid-column: ${(p) => (p.$span ? `span ${p.$span}` : 'auto')};
+`;
+
+export const FieldLabel = styled.label`
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+`;
+
+export const TextInput = styled.input`
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1a1a2e;
+  outline: none;
+
+  &:focus {
+    border-color: #5b1647;
+    box-shadow: 0 0 0 2px rgba(91, 22, 71, 0.1);
+  }
+
+  &::placeholder {
+    color: #9ca3af;
+  }
+`;
+
+export const SubHeading = styled.h3`
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+  margin: 24px 0 12px;
+`;
+
 export const QuestionBlock = styled.div`
   margin-top: 28px;
 `;

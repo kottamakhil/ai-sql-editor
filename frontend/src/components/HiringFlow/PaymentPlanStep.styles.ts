@@ -108,7 +108,6 @@ export const TrancheCard = styled.div`
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   margin-bottom: 12px;
-  overflow: hidden;
 `;
 
 export const TrancheHeader = styled.div`
@@ -118,6 +117,7 @@ export const TrancheHeader = styled.div`
   padding: 10px 16px;
   background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
+  border-radius: 8px 8px 0 0;
   font-size: 13px;
   font-weight: 600;
   color: #1a1a2e;

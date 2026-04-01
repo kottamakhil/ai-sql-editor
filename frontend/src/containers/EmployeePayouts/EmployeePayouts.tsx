@@ -101,8 +101,8 @@ export function EmployeePayouts() {
           </svg>
         </Avatar>
         <HeaderInfo>
-          <h1>My Compensation</h1>
-          <p>{employee.name} &middot; {employee.role} &middot; {employee.department}</p>
+          <h1>{employee.name}</h1>
+          <p>{employee.role} &middot; {employee.department}</p>
         </HeaderInfo>
       </Header>
 
