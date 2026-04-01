@@ -13,6 +13,7 @@ class Employee(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     department: Mapped[str] = mapped_column(String(60), nullable=False)
     role: Mapped[str] = mapped_column(String(60), nullable=False)
+    country: Mapped[str] = mapped_column(String(60), nullable=False, server_default="US")
     start_date: Mapped[datetime.date] = mapped_column(nullable=False)
 
 

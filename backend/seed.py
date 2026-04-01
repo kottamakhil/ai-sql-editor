@@ -9,16 +9,16 @@ from models import Deal, Employee, Quota
 log = logging.getLogger(__name__)
 
 EMPLOYEES = [
-    Employee(id="emp_01", name="Alice Chen", department="Sales", role="Account Executive", start_date=datetime.date(2022, 3, 15)),
-    Employee(id="emp_02", name="Bob Martinez", department="Sales", role="Account Executive", start_date=datetime.date(2021, 7, 1)),
-    Employee(id="emp_03", name="Charlie Kim", department="Sales", role="SDR", start_date=datetime.date(2023, 1, 10)),
-    Employee(id="emp_04", name="Diana Patel", department="Sales", role="Account Executive", start_date=datetime.date(2020, 11, 20)),
-    Employee(id="emp_05", name="Ethan Brooks", department="Sales", role="SDR", start_date=datetime.date(2023, 6, 5)),
-    Employee(id="emp_06", name="Fiona Walsh", department="Sales", role="Sales Manager", start_date=datetime.date(2019, 4, 12)),
-    Employee(id="emp_07", name="George Tanaka", department="Sales", role="Account Executive", start_date=datetime.date(2022, 9, 1)),
-    Employee(id="emp_08", name="Hannah Lee", department="Sales", role="Account Executive", start_date=datetime.date(2021, 2, 14)),
-    Employee(id="emp_09", name="Ivan Petrov", department="Engineering", role="Staff Engineer", start_date=datetime.date(2020, 8, 3)),
-    Employee(id="emp_10", name="Julia Reyes", department="Sales", role="VP Sales", start_date=datetime.date(2018, 1, 15)),
+    Employee(id="emp_01", name="Alice Chen", department="Sales", role="Account Executive", country="US", start_date=datetime.date(2022, 3, 15)),
+    Employee(id="emp_02", name="Bob Martinez", department="Sales", role="Account Executive", country="US", start_date=datetime.date(2021, 7, 1)),
+    Employee(id="emp_03", name="Charlie Kim", department="Sales", role="SDR", country="UK", start_date=datetime.date(2023, 1, 10)),
+    Employee(id="emp_04", name="Diana Patel", department="Sales", role="Account Executive", country="IN", start_date=datetime.date(2020, 11, 20)),
+    Employee(id="emp_05", name="Ethan Brooks", department="Sales", role="SDR", country="US", start_date=datetime.date(2023, 6, 5)),
+    Employee(id="emp_06", name="Fiona Walsh", department="Sales", role="Sales Manager", country="IE", start_date=datetime.date(2019, 4, 12)),
+    Employee(id="emp_07", name="George Tanaka", department="Sales", role="Account Executive", country="JP", start_date=datetime.date(2022, 9, 1)),
+    Employee(id="emp_08", name="Hannah Lee", department="Sales", role="Account Executive", country="US", start_date=datetime.date(2021, 2, 14)),
+    Employee(id="emp_09", name="Ivan Petrov", department="Engineering", role="Staff Engineer", country="DE", start_date=datetime.date(2020, 8, 3)),
+    Employee(id="emp_10", name="Julia Reyes", department="Sales", role="VP Sales", country="US", start_date=datetime.date(2018, 1, 15)),
 ]
 
 DEALS = [

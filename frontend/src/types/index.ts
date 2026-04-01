@@ -180,3 +180,31 @@ export interface PlanTemplate {
   name: string;
   content: string;
 }
+
+export interface Employee {
+  employee_id: string;
+  name: string;
+  department: string;
+  role: string;
+  country: string;
+  start_date: string;
+}
+
+export interface PayoutItem {
+  payout_id: string;
+  employee_id: string;
+  group_id: string;
+  amount: number;
+  date: string;
+  status: 'paid' | 'scheduled';
+}
+
+export interface PayoutGroup {
+  payouts: PayoutItem[];
+  total: number;
+}
+
+export interface EmployeePayouts {
+  employee_id: string;
+  groups: Record<string, PayoutGroup>;
+}

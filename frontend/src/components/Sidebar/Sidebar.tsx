@@ -4,7 +4,8 @@ import { MOCK_NAV_BADGES } from '../../mockservice';
 import { useAppContext } from '../../contexts/AppContext';
 import { usePlans } from '../../actions/plans';
 import { NewPlanChatModal } from '../NewPlanChatModal/NewPlanChatModal';
-import { PanelIcon, ApprovalsIcon, DisputesIcon, WorkspacesIcon, SkillsIcon, TemplatesIcon } from './Sidebar.helpers';
+import { useEmployees } from '../../actions/employees';
+import { PanelIcon, ApprovalsIcon, DisputesIcon, WorkspacesIcon, SkillsIcon, TemplatesIcon, EmployeesIcon } from './Sidebar.helpers';
 import {
   SidebarContainer,
   ExpandedContent,
@@ -30,8 +31,11 @@ export function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useAppContext();
   const [showNewPlan, setShowNewPlan] = useState(false);
   const navigate = useNavigate();
-  const { planId: activePlanId } = useParams<{ planId: string }>();
+  const params = useParams<{ planId: string; employeeId: string }>();
+  const activePlanId = params.planId;
+  const activeEmployeeId = params.employeeId;
   const { data: plans, isLoading: plansLoading } = usePlans();
+  const { data: employees, isLoading: employeesLoading } = useEmployees();
 
   return (
     <>
@@ -84,6 +88,31 @@ export function Sidebar() {
               Plan templates
             </NavItem>
           </NavSection>
+
+          <SectionTitle>Employees</SectionTitle>
+          <PlansList>
+            {employeesLoading && (
+              <>
+                <SkeletonLine $width="75%" />
+                <SkeletonLine $width="60%" />
+                <SkeletonLine $width="50%" />
+              </>
+            )}
+            {!employeesLoading && (employees ?? []).map((emp) => (
+              <PlanItem
+                key={emp.employee_id}
+                $active={emp.employee_id === activeEmployeeId}
+                onClick={() => navigate(`/compensation/employees/${emp.employee_id}`)}
+              >
+                {emp.name}
+              </PlanItem>
+            ))}
+            {!employeesLoading && employees?.length === 0 && (
+              <PlanItem as="div" style={{ color: '#9ca3af', cursor: 'default' }}>
+                No employees yet
+              </PlanItem>
+            )}
+          </PlansList>
 
           <SectionTitle>Recent plans</SectionTitle>
           <PlansList>
@@ -148,6 +177,9 @@ export function Sidebar() {
           </CollapsedIconButton>
           <CollapsedIconButton title="Plan Templates" onClick={() => navigate('/variable-compensation/plan-templates')}>
             <TemplatesIcon />
+          </CollapsedIconButton>
+          <CollapsedIconButton title="Employees" onClick={() => navigate('/compensation/employees')}>
+            <EmployeesIcon />
           </CollapsedIconButton>
         </CollapsedContent>
       )}

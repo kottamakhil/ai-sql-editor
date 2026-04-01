@@ -4,6 +4,7 @@ import { PlansLanding } from '../containers/PlansLanding/PlansLanding';
 import { PlanDetail } from '../containers/PlanDetail/PlanDetail';
 import { SkillsEditor } from '../containers/SkillsEditor/SkillsEditor';
 import { PlanTemplateEditor } from '../containers/PlanTemplateEditor/PlanTemplateEditor';
+import { EmployeePayouts } from '../containers/EmployeePayouts/EmployeePayouts';
 
 export const router = createBrowserRouter([
   {
@@ -24,6 +25,10 @@ export const router = createBrowserRouter([
       {
         path: '/variable-compensation/plan-templates',
         element: <PlanTemplateEditor />,
+      },
+      {
+        path: '/compensation/employees/:employeeId',
+        element: <EmployeePayouts />,
       },
       {
         path: '*',

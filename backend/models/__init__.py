@@ -1,5 +1,6 @@
 from models.base import Base, _new_id
 from models.business import Deal, Employee, Quota
+from models.payout import Payout
 from models.conversation import ChatFile, Conversation, ConversationMessage, ConversationSkillVersion
 from models.plan import (
     Plan,
@@ -33,4 +34,5 @@ __all__ = [
     "ConversationMessage",
     "ConversationSkillVersion",
     "ChatFile",
+    "Payout",
 ]
