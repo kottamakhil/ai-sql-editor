@@ -9,12 +9,15 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from services.plan_service import PlanServiceBase
 
 log = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 @dataclass
@@ -24,6 +27,7 @@ class ToolContext:
     plan_service: PlanServiceBase
     skills: list[dict]
     schema_ddls: list[str]
+    on_progress: ProgressCallback | None = None
 
 
 @dataclass

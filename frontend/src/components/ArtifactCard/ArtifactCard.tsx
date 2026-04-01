@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { useExecuteArtifact, useUpdateArtifact, explainArtifact } from '../../actions/plans';
+import { useState, useRef, useCallback } from 'react';
+import { useExecuteArtifact, useUpdateArtifact } from '../../actions/plans';
+import { highlightSQL } from '../../utils/highlightSQL';
+import { artifactDisplayName } from '../../utils/artifactLabels';
 import type { ArtifactCardProps } from './ArtifactCard.types';
 import {
   Card,
@@ -7,7 +9,11 @@ import {
   ArtifactName,
   HeaderActions,
   IconBtn,
-  SqlEditor,
+  ToggleGroup,
+  ToggleBtn,
+  SqlEditorWrapper,
+  SqlEditorHighlight,
+  SqlEditorTextarea,
   SqlFooter,
   SaveStatus,
   SaveBtn,
@@ -16,17 +22,11 @@ import {
   RowCount,
   ErrorBox,
   LoadingBox,
-  ExplainLoading,
-  ExplainHtml,
 } from './ArtifactCard.styles';
 
-export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
+export function ArtifactCard({ artifact, planId, cycleId, onExpand }: ArtifactCardProps) {
   const [view, setView] = useState<'data' | 'sql'>('data');
-  const [collapsed, setCollapsed] = useState(false);
   const [editedSql, setEditedSql] = useState(artifact.sql_expression);
-  const [showExplain, setShowExplain] = useState(false);
-  const [explainHtml, setExplainHtml] = useState<string | null>(null);
-  const [explainLoading, setExplainLoading] = useState(false);
   const { data: result, isLoading, isError } = useExecuteArtifact(artifact.artifact_id, cycleId);
   const updateMutation = useUpdateArtifact(planId);
 
@@ -38,23 +38,6 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
       artifactId: artifact.artifact_id,
       data: { sql_expression: editedSql },
     });
-  };
-
-  const handleExplain = async () => {
-    if (showExplain && explainHtml) {
-      setShowExplain(false);
-      return;
-    }
-    setShowExplain(true);
-    setExplainLoading(true);
-    try {
-      const resp = await explainArtifact(artifact.artifact_id, cycleId);
-      setExplainHtml(resp.html_content);
-    } catch {
-      setExplainHtml(null);
-    } finally {
-      setExplainLoading(false);
-    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -71,59 +54,44 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
   return (
     <Card>
       <Header>
-        <ArtifactName>{artifact.name || 'Unnamed artifact'}</ArtifactName>
+        <ArtifactName>{artifact.name ? artifactDisplayName(artifact.name) : 'Unnamed artifact'}</ArtifactName>
         <HeaderActions>
-          {artifact.name === 'payout' && (
-            <IconBtn title="Explain this artifact" $active={showExplain} onClick={handleExplain}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
+          <ToggleGroup>
+            <ToggleBtn title="View data" $active={view === 'data'} onClick={() => setView('data')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
-            </IconBtn>
-          )}
-          <IconBtn title="View data" $active={view === 'data' && !showExplain} onClick={() => { setView('data'); setShowExplain(false); }}>
+            </ToggleBtn>
+            <ToggleBtn title={`Edit SQL${hasChanges ? ' (unsaved)' : ''}`} $active={view === 'sql'} onClick={() => setView('sql')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+            </ToggleBtn>
+          </ToggleGroup>
+          <IconBtn title="Expand" onClick={() => artifact.name && onExpand?.(artifact.name)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </IconBtn>
-          <IconBtn title={`Edit SQL${hasChanges ? ' (unsaved)' : ''}`} $active={view === 'sql'} onClick={() => { setView('sql'); setShowExplain(false); }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="16 18 22 12 16 6" />
-              <polyline points="8 6 2 12 8 18" />
-            </svg>
-          </IconBtn>
-          <IconBtn title={collapsed ? 'Expand' : 'Collapse'} onClick={() => setCollapsed((c) => !c)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: collapsed ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s ease' }}>
-              <polyline points="18 15 12 9 6 15" strokeLinecap="round" strokeLinejoin="round" />
+              <polyline points="15 3 21 3 21 9" strokeLinecap="round" strokeLinejoin="round" />
+              <polyline points="9 21 3 21 3 15" strokeLinecap="round" strokeLinejoin="round" />
+              <line x1="21" y1="3" x2="14" y2="10" strokeLinecap="round" strokeLinejoin="round" />
+              <line x1="3" y1="21" x2="10" y2="14" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </IconBtn>
         </HeaderActions>
       </Header>
 
-      {!collapsed && showExplain && (
+      {view === 'sql' && (
         <>
-          {explainLoading && <ExplainLoading>Generating explanation...</ExplainLoading>}
-          {!explainLoading && explainHtml && (
-            <ExplainHtml>
-              <div className="explain-root" dangerouslySetInnerHTML={{ __html: explainHtml }} />
-            </ExplainHtml>
-          )}
-          {!explainLoading && !explainHtml && (
-            <ExplainLoading>Failed to generate explanation.</ExplainLoading>
-          )}
-        </>
-      )}
-
-      {!collapsed && !showExplain && view === 'sql' && (
-        <>
-          <SqlEditor
-            value={editedSql}
-            onChange={(e) => setEditedSql(e.target.value)}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-          />
+          <SqlEditorWrapper>
+            <SqlEditorHighlight>{highlightSQL(editedSql)}</SqlEditorHighlight>
+            <SqlEditorTextarea
+              value={editedSql}
+              onChange={(e) => setEditedSql(e.target.value)}
+              onKeyDown={handleKeyDown}
+              spellCheck={false}
+            />
+          </SqlEditorWrapper>
           <SqlFooter>
             <SaveStatus
               $type={
@@ -144,14 +112,14 @@ export function ArtifactCard({ artifact, planId, cycleId }: ArtifactCardProps) {
         </>
       )}
 
-      {!collapsed && !showExplain && view === 'data' && (
+      {view === 'data' && (
         <>
           {isLoading && <LoadingBox>Executing query...</LoadingBox>}
           {isError && <ErrorBox>Failed to execute artifact.</ErrorBox>}
           {result && result.error && <ErrorBox>{result.error}</ErrorBox>}
           {result && !result.error && (
             <DataSection>
-              <DataTable>
+              <DataTable $noBorder>
                 <thead>
                   <tr>
                     {result.columns.map((col) => (

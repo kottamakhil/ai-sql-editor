@@ -19,6 +19,7 @@ import type {
   ConversationSummary,
   LineageDAG,
   Employee,
+  StreamEvent,
 } from '../types';
 
 const BASE = '/api';
@@ -68,6 +69,77 @@ export const deleteArtifact = (artifactId: string) =>
 
 export const sendChat = (data: ChatRequest) =>
   http<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify(data) });
+
+export function streamChat(
+  request: ChatRequest,
+  onEvent: (event: StreamEvent) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${BASE}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        onEvent({ type: 'error', error: `${res.status}: ${body}` });
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        onEvent({ type: 'error', error: 'No response body' });
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        let currentEvent = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            const data = line.slice(5).trim();
+            if (!data) continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (currentEvent === 'complete') {
+                onEvent({ type: 'complete', data: parsed.data ?? parsed });
+              } else if (currentEvent === 'artifact') {
+                onEvent(parsed as StreamEvent);
+              } else if (currentEvent === 'error') {
+                onEvent({ type: 'error', error: parsed.error ?? 'Unknown error' });
+              } else {
+                onEvent(parsed as StreamEvent);
+              }
+            } catch {
+              // skip unparseable lines
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      onEvent({ type: 'error', error: err instanceof Error ? err.message : 'Stream failed' });
+    }
+  })();
+
+  return controller;
+}
 
 export async function uploadChatFile(file: File): Promise<ChatFileOut> {
   const form = new FormData();

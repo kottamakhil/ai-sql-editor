@@ -14,6 +14,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "datadog-api-client>=2.0",
     "python-dateutil>=2.9",
+    "sse-starlette>=2.0",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -34,7 +34,7 @@ export const Panel = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #fafafa;
+  background: #fff;
   min-width: 0;
 `;
 
@@ -56,9 +56,9 @@ export const MessageBubble = styled.div<{ $role: string }>`
   line-height: 1.5;
   word-break: break-word;
   align-self: ${(p) => (p.$role === 'user' ? 'flex-end' : 'flex-start')};
-  background: ${(p) => (p.$role === 'user' ? '#5b1647' : '#fff')};
-  color: ${(p) => (p.$role === 'user' ? '#fff' : '#1a1a2e')};
-  border: ${(p) => (p.$role === 'user' ? 'none' : '1px solid #e5e7eb')};
+  background: ${(p) => (p.$role === 'user' ? '#f0f0f0' : 'transparent')};
+  color: #1a1a1a;
+  border: none;
   white-space: ${(p) => (p.$role === 'user' ? 'pre-wrap' : 'normal')};
 
   p { margin: 0 0 8px; &:last-child { margin-bottom: 0; } }
@@ -70,15 +70,17 @@ export const MessageBubble = styled.div<{ $role: string }>`
     font-size: 12px;
     padding: 1px 5px;
     border-radius: 4px;
-    background: ${(p) => (p.$role === 'user' ? 'rgba(255,255,255,0.15)' : '#f3f4f6')};
+    background: #e2e2e2;
   }
   pre {
     margin: 8px 0;
-    padding: 10px;
-    border-radius: 6px;
-    background: ${(p) => (p.$role === 'user' ? 'rgba(255,255,255,0.1)' : '#1e1e2e')};
-    color: ${(p) => (p.$role === 'user' ? '#fff' : '#cdd6f4')};
+    padding: 16px;
+    border-radius: 8px;
+    background: #1e1e1e;
+    color: #d4d4d4;
     overflow-x: auto;
+    white-space: pre;
+    line-height: 1.6;
     code { padding: 0; background: none; }
   }
 `;
@@ -207,4 +209,35 @@ export const ShimmerLine = styled.div<{ $width?: string }>`
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200% 100%;
   animation: ${shimmer} 1.5s ease-in-out infinite;
+`;
+
+export const SqlChip = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  min-height: 26px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+  }
+
+  .expand {
+    padding: 0;
+    font-size: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1;
+    color: #9ca3af;
+  }
 `;

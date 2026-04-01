@@ -1,12 +1,17 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useUpdatePlan, useUpdatePlanConfig } from '../../actions/plans';
-import type { PlanConfig } from '../../types';
+import type { Plan, PlanConfig } from '../../types';
 import type { SummaryTabProps } from './SummaryTab.types';
 import { MembershipRulesSection } from '../MembershipRules/MembershipRulesSection';
+import { sortArtifacts } from '../../utils/artifactLabels';
+import { PlanTakeover } from '../PlanTakeover/PlanTakeover';
 import {
   Container,
   SectionTitle,
-  SectionGap,
+  ViewToggle,
+  ViewToggleBtn,
+  ExpandButton,
+  ConfigEditor,
   Table,
   Row,
   LabelCell,
@@ -20,7 +25,7 @@ import {
   DropdownItem,
   SaveBar,
   SaveBtn,
-  EditIconBtn,
+  SectionGap,
 } from './SummaryTab.styles';
 
 const FREQUENCY_OPTIONS = ['MONTHLY', 'QUARTERLY', 'ANNUALLY'];
@@ -53,6 +58,16 @@ function nullableToStr(val: string | null | undefined): string {
 function strToNullable(val: string): string | null {
   return val === 'None' ? null : val;
 }
+
+function composeSql(plan: Plan): string {
+  const arts = plan.artifacts.filter((a) => a.name && a.sql_expression);
+  if (arts.length === 0) return '-- No SQL artifacts defined yet.';
+  return arts
+    .map((a) => `-- ${a.name}\n${a.sql_expression}`)
+    .join('\n\n');
+}
+
+import { highlightSQL } from '../../utils/highlightSQL';
 
 function EditIcon() {
   return (
@@ -123,264 +138,202 @@ export function SummaryTab({ plan, planId }: SummaryTabProps) {
   const updateMutation = useUpdatePlan(planId);
   const configMutation = useUpdatePlanConfig(planId);
 
-  // ---- Plan details ----
   const [isEditing, setIsEditing] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'config'>('table');
+  const [expanded, setExpanded] = useState(false);
+
   const [name, setName] = useState(plan.name);
   const [planType, setPlanType] = useState(plan.plan_type);
   const [frequency, setFrequency] = useState(plan.frequency);
-
-  const hasDetailChanges =
-    name !== plan.name || planType !== plan.plan_type || frequency !== plan.frequency;
-
-  const handleDetailSave = () => {
-    if (!hasDetailChanges || updateMutation.isPending) return;
-    const patch: Record<string, string> = {};
-    if (name !== plan.name) patch.name = name;
-    if (planType !== plan.plan_type) patch.plan_type = planType;
-    if (frequency !== plan.frequency) patch.frequency = frequency;
-    updateMutation.mutate(patch, { onSuccess: () => setIsEditing(false) });
-  };
-
-  const handleDetailDiscard = () => {
-    setName(plan.name); setPlanType(plan.plan_type); setFrequency(plan.frequency);
-    setIsEditing(false); updateMutation.reset();
-  };
-
-  const handleDetailEdit = () => {
-    setName(plan.name); setPlanType(plan.plan_type); setFrequency(plan.frequency);
-    setIsEditing(true);
-  };
-
-  // ---- Payout ----
-  const [editingPayout, setEditingPayout] = useState(false);
   const [autoPayoutEnabled, setAutoPayoutEnabled] = useState(boolToStr(payout.is_automatic_payout_enabled));
   const [paymentOffset, setPaymentOffset] = useState(payout.final_payment_offset?.toString() ?? '');
   const [drawsEnabled, setDrawsEnabled] = useState(boolToStr(payout.is_draws_enabled));
   const [drawFrequency, setDrawFrequency] = useState(nullableToStr(payout.draw_frequency));
+  const [payoutType, setPayoutType] = useState(nullableToStr(payroll.payout_type));
+  const [disputesEnabled, setDisputesEnabled] = useState(boolToStr(disputes.is_disputes_enabled));
 
+  const hasDetailChanges =
+    name !== plan.name || planType !== plan.plan_type || frequency !== plan.frequency;
   const hasPayoutChanges =
     strToBool(autoPayoutEnabled) !== payout.is_automatic_payout_enabled ||
     (paymentOffset === '' ? null : Number(paymentOffset)) !== payout.final_payment_offset ||
     strToBool(drawsEnabled) !== payout.is_draws_enabled ||
     strToNullable(drawFrequency) !== payout.draw_frequency;
+  const hasPayrollChanges = strToNullable(payoutType) !== payroll.payout_type;
+  const hasDisputesChanges = strToBool(disputesEnabled) !== disputes.is_disputes_enabled;
+  const hasChanges = hasDetailChanges || hasPayoutChanges || hasPayrollChanges || hasDisputesChanges;
+  const isSaving = updateMutation.isPending || configMutation.isPending;
 
-  const resetPayoutState = () => {
+  const resetAll = () => {
+    setName(plan.name); setPlanType(plan.plan_type); setFrequency(plan.frequency);
     setAutoPayoutEnabled(boolToStr(payout.is_automatic_payout_enabled));
     setPaymentOffset(payout.final_payment_offset?.toString() ?? '');
     setDrawsEnabled(boolToStr(payout.is_draws_enabled));
     setDrawFrequency(nullableToStr(payout.draw_frequency));
-  };
-
-  const handlePayoutSave = () => {
-    if (!hasPayoutChanges || configMutation.isPending) return;
-    const patch: Partial<PlanConfig> = {
-      payout: {
-        is_automatic_payout_enabled: strToBool(autoPayoutEnabled),
-        final_payment_offset: paymentOffset === '' ? null : Number(paymentOffset),
-        is_draws_enabled: strToBool(drawsEnabled),
-        draw_frequency: strToNullable(drawFrequency),
-      },
-    };
-    configMutation.mutate(patch, { onSuccess: () => setEditingPayout(false) });
-  };
-
-  // ---- Payroll ----
-  const [editingPayroll, setEditingPayroll] = useState(false);
-  const [payoutType, setPayoutType] = useState(nullableToStr(payroll.payout_type));
-
-  const hasPayrollChanges = strToNullable(payoutType) !== payroll.payout_type;
-
-  const resetPayrollState = () => {
     setPayoutType(nullableToStr(payroll.payout_type));
-  };
-
-  const handlePayrollSave = () => {
-    if (!hasPayrollChanges || configMutation.isPending) return;
-    const patch: Partial<PlanConfig> = {
-      payroll: { payout_type: strToNullable(payoutType) },
-    };
-    configMutation.mutate(patch, { onSuccess: () => setEditingPayroll(false) });
-  };
-
-  // ---- Disputes ----
-  const [editingDisputes, setEditingDisputes] = useState(false);
-  const [disputesEnabled, setDisputesEnabled] = useState(boolToStr(disputes.is_disputes_enabled));
-
-  const hasDisputesChanges = strToBool(disputesEnabled) !== disputes.is_disputes_enabled;
-
-  const resetDisputesState = () => {
     setDisputesEnabled(boolToStr(disputes.is_disputes_enabled));
   };
 
-  const handleDisputesSave = () => {
-    if (!hasDisputesChanges || configMutation.isPending) return;
-    const patch: Partial<PlanConfig> = {
-      disputes: { is_disputes_enabled: strToBool(disputesEnabled) },
-    };
-    configMutation.mutate(patch, { onSuccess: () => setEditingDisputes(false) });
+  const handleEdit = () => { resetAll(); setIsEditing(true); };
+
+  const handleDiscard = () => {
+    resetAll(); setIsEditing(false);
+    updateMutation.reset(); configMutation.reset();
+  };
+
+  const handleSave = async () => {
+    if (!hasChanges || isSaving) return;
+    if (hasDetailChanges) {
+      const patch: Record<string, string> = {};
+      if (name !== plan.name) patch.name = name;
+      if (planType !== plan.plan_type) patch.plan_type = planType;
+      if (frequency !== plan.frequency) patch.frequency = frequency;
+      await updateMutation.mutateAsync(patch);
+    }
+    if (hasPayoutChanges || hasPayrollChanges || hasDisputesChanges) {
+      const patch: Partial<PlanConfig> = {};
+      if (hasPayoutChanges) {
+        patch.payout = {
+          is_automatic_payout_enabled: strToBool(autoPayoutEnabled),
+          final_payment_offset: paymentOffset === '' ? null : Number(paymentOffset),
+          is_draws_enabled: strToBool(drawsEnabled),
+          draw_frequency: strToNullable(drawFrequency),
+        };
+      }
+      if (hasPayrollChanges) patch.payroll = { payout_type: strToNullable(payoutType) };
+      if (hasDisputesChanges) patch.disputes = { is_disputes_enabled: strToBool(disputesEnabled) };
+      await configMutation.mutateAsync(patch);
+    }
+    setIsEditing(false);
   };
 
   return (
     <Container>
-      {/* ---- Plan Details ---- */}
       <SectionTitle>
         Plan details
-        {!isEditing && (
-          <EditIconBtn onClick={handleDetailEdit} title="Edit plan details"><EditIcon /></EditIconBtn>
-        )}
+        <ViewToggle>
+          <ViewToggleBtn $active={viewMode === 'table'} onClick={() => setViewMode('table')} title="Table view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </ViewToggleBtn>
+          <ViewToggleBtn $active={viewMode === 'config'} onClick={() => setViewMode('config')} title="SQL view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="16 18 22 12 16 6" strokeLinecap="round" strokeLinejoin="round" />
+              <polyline points="8 6 2 12 8 18" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </ViewToggleBtn>
+        </ViewToggle>
+        <ExpandButton onClick={() => setExpanded(true)} title="Expand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 3 21 3 21 9" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points="9 21 3 21 3 15" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="21" y1="3" x2="14" y2="10" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="3" y1="21" x2="10" y2="14" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </ExpandButton>
       </SectionTitle>
-      <Table>
-        <Row>
-          <LabelCell>Plan name</LabelCell>
-          {isEditing ? (
-            <EditableValueCell><InlineInput value={name} onChange={(e) => setName(e.target.value)} /></EditableValueCell>
-          ) : (
-            <ValueCell>{plan.name}</ValueCell>
+
+      {viewMode === 'config' ? (
+        <ConfigEditor>
+          {highlightSQL(composeSql(plan))}
+        </ConfigEditor>
+      ) : (
+        <>
+          <Table $noBorder>
+            <Row>
+              <LabelCell>Plan name</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><InlineInput value={name} onChange={(e) => setName(e.target.value)} /></EditableValueCell>
+              ) : (
+                <ValueCell>{plan.name}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Type</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={planType} options={TYPE_OPTIONS} onChange={setPlanType} /></EditableValueCell>
+              ) : (
+                <ValueCell>{plan.plan_type}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Frequency</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={frequency} options={FREQUENCY_OPTIONS} onChange={setFrequency} /></EditableValueCell>
+              ) : (
+                <ValueCell>{plan.frequency}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Automatic payout</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={autoPayoutEnabled} options={BOOL_OPTIONS} onChange={setAutoPayoutEnabled} /></EditableValueCell>
+              ) : (
+                <ValueCell>{formatBool(payout.is_automatic_payout_enabled)}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Final payment offset</LabelCell>
+              {isEditing ? (
+                <EditableValueCell>
+                  <InlineNumberInput value={paymentOffset} onChange={(e) => setPaymentOffset(e.target.value)} placeholder="Days" min={0} />
+                </EditableValueCell>
+              ) : (
+                <ValueCell>{formatValue(payout.final_payment_offset)}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Draws enabled</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={drawsEnabled} options={BOOL_OPTIONS} onChange={setDrawsEnabled} /></EditableValueCell>
+              ) : (
+                <ValueCell>{formatBool(payout.is_draws_enabled)}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Draw frequency</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={drawFrequency} options={DRAW_FREQ_OPTIONS} onChange={setDrawFrequency} /></EditableValueCell>
+              ) : (
+                <ValueCell>{formatValue(payout.draw_frequency)}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Payout type</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={payoutType} options={PAYOUT_TYPE_OPTIONS} onChange={setPayoutType} /></EditableValueCell>
+              ) : (
+                <ValueCell>{formatValue(payroll.payout_type)}</ValueCell>
+              )}
+            </Row>
+            <Row>
+              <LabelCell>Disputes enabled</LabelCell>
+              {isEditing ? (
+                <EditableValueCell><Dropdown value={disputesEnabled} options={BOOL_OPTIONS} onChange={setDisputesEnabled} /></EditableValueCell>
+              ) : (
+                <ValueCell>{formatBool(disputes.is_disputes_enabled)}</ValueCell>
+              )}
+            </Row>
+          </Table>
+          {isEditing && (
+            <SaveBar>
+              <SaveBtn $variant="secondary" onClick={handleDiscard}>Cancel</SaveBtn>
+              <SaveBtn onClick={handleSave} disabled={!hasChanges || isSaving}>
+                {isSaving ? 'Saving...' : 'Save changes'}
+              </SaveBtn>
+            </SaveBar>
           )}
-        </Row>
-        <Row>
-          <LabelCell>Type</LabelCell>
-          {isEditing ? (
-            <EditableValueCell><Dropdown value={planType} options={TYPE_OPTIONS} onChange={setPlanType} /></EditableValueCell>
-          ) : (
-            <ValueCell>{plan.plan_type}</ValueCell>
-          )}
-        </Row>
-        <Row>
-          <LabelCell>Frequency</LabelCell>
-          {isEditing ? (
-            <EditableValueCell><Dropdown value={frequency} options={FREQUENCY_OPTIONS} onChange={setFrequency} /></EditableValueCell>
-          ) : (
-            <ValueCell>{plan.frequency}</ValueCell>
-          )}
-        </Row>
-        <Row><LabelCell>Mode</LabelCell><ValueCell>{plan.mode}</ValueCell></Row>
-        <Row><LabelCell>Artifacts</LabelCell><ValueCell>{plan.artifacts.length} artifact{plan.artifacts.length !== 1 ? 's' : ''}</ValueCell></Row>
-      </Table>
-      {isEditing && (
-        <SaveBar>
-          <SaveBtn $variant="secondary" onClick={handleDetailDiscard}>Cancel</SaveBtn>
-          <SaveBtn onClick={handleDetailSave} disabled={!hasDetailChanges || updateMutation.isPending}>
-            {updateMutation.isPending ? 'Saving...' : 'Save changes'}
-          </SaveBtn>
-        </SaveBar>
+        </>
       )}
+
+      {expanded && <PlanTakeover plan={plan} onClose={() => setExpanded(false)} />}
 
       <SectionGap />
 
-      {/* ---- Membership Rules ---- */}
       <SectionTitle>Membership rules</SectionTitle>
       <MembershipRulesSection planId={planId} membership={plan.membership} />
-
-      <SectionGap />
-
-      {/* ---- Payout ---- */}
-      <SectionTitle>
-        Payout
-        {!editingPayout && (
-          <EditIconBtn onClick={() => { resetPayoutState(); setEditingPayout(true); }} title="Edit payout"><EditIcon /></EditIconBtn>
-        )}
-      </SectionTitle>
-      <Table>
-        <Row>
-          <LabelCell>Automatic payout</LabelCell>
-          {editingPayout ? (
-            <EditableValueCell><Dropdown value={autoPayoutEnabled} options={BOOL_OPTIONS} onChange={setAutoPayoutEnabled} /></EditableValueCell>
-          ) : (
-            <ValueCell>{formatBool(payout.is_automatic_payout_enabled)}</ValueCell>
-          )}
-        </Row>
-        <Row>
-          <LabelCell>Final payment offset</LabelCell>
-          {editingPayout ? (
-            <EditableValueCell>
-              <InlineNumberInput value={paymentOffset} onChange={(e) => setPaymentOffset(e.target.value)} placeholder="Days" min={0} />
-            </EditableValueCell>
-          ) : (
-            <ValueCell>{formatValue(payout.final_payment_offset)}</ValueCell>
-          )}
-        </Row>
-        <Row>
-          <LabelCell>Draws enabled</LabelCell>
-          {editingPayout ? (
-            <EditableValueCell><Dropdown value={drawsEnabled} options={BOOL_OPTIONS} onChange={setDrawsEnabled} /></EditableValueCell>
-          ) : (
-            <ValueCell>{formatBool(payout.is_draws_enabled)}</ValueCell>
-          )}
-        </Row>
-        <Row>
-          <LabelCell>Draw frequency</LabelCell>
-          {editingPayout ? (
-            <EditableValueCell><Dropdown value={drawFrequency} options={DRAW_FREQ_OPTIONS} onChange={setDrawFrequency} /></EditableValueCell>
-          ) : (
-            <ValueCell>{formatValue(payout.draw_frequency)}</ValueCell>
-          )}
-        </Row>
-      </Table>
-      {editingPayout && (
-        <SaveBar>
-          <SaveBtn $variant="secondary" onClick={() => { resetPayoutState(); setEditingPayout(false); configMutation.reset(); }}>Cancel</SaveBtn>
-          <SaveBtn onClick={handlePayoutSave} disabled={!hasPayoutChanges || configMutation.isPending}>
-            {configMutation.isPending ? 'Saving...' : 'Save changes'}
-          </SaveBtn>
-        </SaveBar>
-      )}
-
-      <SectionGap />
-
-      {/* ---- Payroll ---- */}
-      <SectionTitle>
-        Payroll
-        {!editingPayroll && (
-          <EditIconBtn onClick={() => { resetPayrollState(); setEditingPayroll(true); }} title="Edit payroll"><EditIcon /></EditIconBtn>
-        )}
-      </SectionTitle>
-      <Table>
-        <Row>
-          <LabelCell>Payout type</LabelCell>
-          {editingPayroll ? (
-            <EditableValueCell><Dropdown value={payoutType} options={PAYOUT_TYPE_OPTIONS} onChange={setPayoutType} /></EditableValueCell>
-          ) : (
-            <ValueCell>{formatValue(payroll.payout_type)}</ValueCell>
-          )}
-        </Row>
-      </Table>
-      {editingPayroll && (
-        <SaveBar>
-          <SaveBtn $variant="secondary" onClick={() => { resetPayrollState(); setEditingPayroll(false); configMutation.reset(); }}>Cancel</SaveBtn>
-          <SaveBtn onClick={handlePayrollSave} disabled={!hasPayrollChanges || configMutation.isPending}>
-            {configMutation.isPending ? 'Saving...' : 'Save changes'}
-          </SaveBtn>
-        </SaveBar>
-      )}
-
-      <SectionGap />
-
-      {/* ---- Disputes ---- */}
-      <SectionTitle>
-        Disputes
-        {!editingDisputes && (
-          <EditIconBtn onClick={() => { resetDisputesState(); setEditingDisputes(true); }} title="Edit disputes"><EditIcon /></EditIconBtn>
-        )}
-      </SectionTitle>
-      <Table>
-        <Row>
-          <LabelCell>Disputes enabled</LabelCell>
-          {editingDisputes ? (
-            <EditableValueCell><Dropdown value={disputesEnabled} options={BOOL_OPTIONS} onChange={setDisputesEnabled} /></EditableValueCell>
-          ) : (
-            <ValueCell>{formatBool(disputes.is_disputes_enabled)}</ValueCell>
-          )}
-        </Row>
-      </Table>
-      {editingDisputes && (
-        <SaveBar>
-          <SaveBtn $variant="secondary" onClick={() => { resetDisputesState(); setEditingDisputes(false); configMutation.reset(); }}>Cancel</SaveBtn>
-          <SaveBtn onClick={handleDisputesSave} disabled={!hasDisputesChanges || configMutation.isPending}>
-            {configMutation.isPending ? 'Saving...' : 'Save changes'}
-          </SaveBtn>
-        </SaveBar>
-      )}
     </Container>
   );
 }

@@ -220,3 +220,38 @@ export interface EmployeePayouts {
   employee_id: string;
   groups: Record<string, PayoutGroup>;
 }
+
+// --- SSE streaming events ---
+
+export interface StreamStepEvent {
+  type: 'tool_start' | 'tool_complete' | 'iteration';
+  tool?: string;
+  arguments_summary?: string;
+  success?: boolean;
+  duration_ms?: number;
+  result_summary?: string;
+  plan_id?: string;
+}
+
+export interface StreamArtifactEvent {
+  type: 'artifact';
+  name: string;
+  sql: string;
+  columns: string[];
+  rows: unknown[][];
+  row_count: number;
+  status: 'success' | 'error';
+  error?: string | null;
+}
+
+export interface StreamCompleteEvent {
+  type: 'complete';
+  data: ChatResponse;
+}
+
+export interface StreamErrorEvent {
+  type: 'error';
+  error: string;
+}
+
+export type StreamEvent = StreamStepEvent | StreamArtifactEvent | StreamCompleteEvent | StreamErrorEvent;

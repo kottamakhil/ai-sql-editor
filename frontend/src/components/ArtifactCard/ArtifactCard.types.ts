@@ -4,4 +4,5 @@ export interface ArtifactCardProps {
   artifact: Artifact;
   planId: string;
   cycleId?: string;
+  onExpand?: (artifactName: string) => void;
 }

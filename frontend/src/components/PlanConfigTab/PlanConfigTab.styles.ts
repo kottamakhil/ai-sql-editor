@@ -24,21 +24,19 @@ export const JsonEditor = styled.textarea`
   flex: 1;
   margin: 0 24px;
   padding: 16px;
-  background: #1e1e2e;
-  color: #cdd6f4;
+  background: #1e1e1e;
+  color: #d4d4d4;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
   line-height: 1.6;
-  border: 1px solid #313244;
+  border: none;
   border-radius: 8px;
   outline: none;
   resize: none;
   box-sizing: border-box;
   tab-size: 2;
-
-  &:focus {
-    box-shadow: inset 0 0 0 2px rgba(91, 22, 71, 0.4);
-  }
+  overflow-x: auto;
+  white-space: pre;
 `;
 
 export const SaveFooter = styled.div`
