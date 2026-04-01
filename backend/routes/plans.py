@@ -40,6 +40,11 @@ from schemas.plan import (
     UpdatePlanConfigRequest,
     UpdatePlanRequest,
 )
+from schemas.commission import (
+    CommissionPayoutOut,
+    SendToPayrollResponse,
+)
+from services.commission_payout_service import CommissionPayoutService
 from services.data_access import load_plan
 from services.executor import (
     ExecutionResult,
@@ -367,6 +372,43 @@ async def get_plan_lineage(plan_id: str, session: AsyncSession = Depends(get_db)
     return LineageDAG(
         nodes=[LineageNode(**n) for n in dag["nodes"]],
         edges=[LineageEdge(**e) for e in dag["edges"]],
+    )
+
+
+# --- Send to Payroll ---
+
+
+@router.post("/plans/{plan_id}/cycles/{cycle_id}/send-to-payroll", response_model=SendToPayrollResponse)
+async def send_to_payroll(
+    plan_id: str,
+    cycle_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    svc = CommissionPayoutService(session)
+    try:
+        payouts = await svc.send_to_payroll(plan_id=plan_id, cycle_id=cycle_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    plan = await load_plan(plan_id, session)
+    cycle = next(c for c in plan.cycles if c.id == cycle_id)
+
+    return SendToPayrollResponse(
+        plan_id=plan.id,
+        plan_name=plan.name,
+        cycle_id=cycle.id,
+        cycle_name=cycle.period_name,
+        payouts_created=len(payouts),
+        payouts=[
+            CommissionPayoutOut(
+                payout_id=p.id,
+                employee_id=p.employee_id,
+                amount=p.amount,
+                date=p.date,
+                group_id=p.group_id,
+            )
+            for p in payouts
+        ],
     )
 
 
