@@ -12,6 +12,7 @@ from models.plan import (
     default_config_dict,
     generate_cycles,
 )
+from models.payment_schedule import PaymentScheduleConfig, Tranche
 from models.skill import Skill, SkillVersion
 
 __all__ = [
@@ -35,4 +36,6 @@ __all__ = [
     "ConversationSkillVersion",
     "ChatFile",
     "Payout",
+    "PaymentScheduleConfig",
+    "Tranche",
 ]
