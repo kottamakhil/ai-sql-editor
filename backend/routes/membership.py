@@ -8,7 +8,6 @@ from database import get_db
 from models import PlanMembershipRule
 from schemas.employee import EmployeeOut
 from schemas.membership import (
-    FieldValuesOut,
     MembershipOut,
     MembershipRuleItem,
     UpdateMembershipRequest,
@@ -16,7 +15,6 @@ from schemas.membership import (
 from services.data_access import load_plan
 from services.membership_service import (
     build_members_query,
-    get_field_values,
     upsert_membership,
 )
 
@@ -29,12 +27,6 @@ def _rule_to_out(rule: PlanMembershipRule) -> MembershipOut:
         rules=[MembershipRuleItem(**r) for r in json.loads(rule.rules_json)],
         exceptions=[MembershipRuleItem(**e) for e in json.loads(rule.exceptions_json)],
     )
-
-
-@router.get("/employees/field-values", response_model=FieldValuesOut)
-async def employee_field_values(session: AsyncSession = Depends(get_db)):
-    values = await get_field_values(session)
-    return FieldValuesOut(**values)
 
 
 @router.put("/plans/{plan_id}/membership", response_model=MembershipOut)

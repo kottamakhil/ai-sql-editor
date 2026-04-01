@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Employee
 from schemas.employee import CreateEmployeeRequest, EmployeeOut
+from schemas.membership import FieldValuesOut
+from services.membership_service import get_field_values
 
 router = APIRouter()
 
@@ -39,6 +41,12 @@ async def create_employee(req: CreateEmployeeRequest, session: AsyncSession = De
 async def list_employees(session: AsyncSession = Depends(get_db)):
     result = await session.execute(select(Employee).order_by(Employee.name))
     return [_employee_to_out(e) for e in result.scalars()]
+
+
+@router.get("/employees/field-values", response_model=FieldValuesOut)
+async def employee_field_values(session: AsyncSession = Depends(get_db)):
+    values = await get_field_values(session)
+    return FieldValuesOut(**values)
 
 
 @router.get("/employees/{employee_id}", response_model=EmployeeOut)
