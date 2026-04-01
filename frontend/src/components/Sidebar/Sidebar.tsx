@@ -5,7 +5,7 @@ import { useAppContext } from '../../contexts/AppContext';
 import { usePlans } from '../../actions/plans';
 import { NewPlanChatModal } from '../NewPlanChatModal/NewPlanChatModal';
 import { useEmployees } from '../../actions/employees';
-import { PanelIcon, ApprovalsIcon, DisputesIcon, WorkspacesIcon, SkillsIcon, TemplatesIcon, EmployeesIcon } from './Sidebar.helpers';
+import { PanelIcon, ApprovalsIcon, DisputesIcon, WorkspacesIcon, SkillsIcon, TemplatesIcon, EmployeesIcon, HiringIcon } from './Sidebar.helpers';
 import {
   SidebarContainer,
   ExpandedContent,
@@ -86,6 +86,10 @@ export function Sidebar() {
             <NavItem onClick={() => navigate('/variable-compensation/plan-templates')}>
               <TemplatesIcon />
               Plan templates
+            </NavItem>
+            <NavItem onClick={() => navigate('/compensation/new-hire')}>
+              <HiringIcon />
+              New hire sign-on
             </NavItem>
           </NavSection>
 
@@ -180,6 +184,9 @@ export function Sidebar() {
           </CollapsedIconButton>
           <CollapsedIconButton title="Employees" onClick={() => navigate('/compensation/employees')}>
             <EmployeesIcon />
+          </CollapsedIconButton>
+          <CollapsedIconButton title="New Hire Sign-On" onClick={() => navigate('/compensation/new-hire')}>
+            <HiringIcon />
           </CollapsedIconButton>
         </CollapsedContent>
       )}

@@ -5,8 +5,13 @@ import { PlanDetail } from '../containers/PlanDetail/PlanDetail';
 import { SkillsEditor } from '../containers/SkillsEditor/SkillsEditor';
 import { PlanTemplateEditor } from '../containers/PlanTemplateEditor/PlanTemplateEditor';
 import { EmployeePayouts } from '../containers/EmployeePayouts/EmployeePayouts';
+import { HiringFlow } from '../containers/HiringFlow/HiringFlow';
 
 export const router = createBrowserRouter([
+  {
+    path: '/compensation/new-hire',
+    element: <HiringFlow />,
+  },
   {
     element: <AppLayout />,
     children: [
