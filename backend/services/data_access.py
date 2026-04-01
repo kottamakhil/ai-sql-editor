@@ -16,7 +16,8 @@ async def load_plan(plan_id: str, session: AsyncSession) -> Plan:
     result = await session.execute(
         select(Plan).options(
             selectinload(Plan.artifacts), selectinload(Plan.config),
-            selectinload(Plan.inferred_config), selectinload(Plan.cycles)
+            selectinload(Plan.inferred_config), selectinload(Plan.cycles),
+            selectinload(Plan.membership_rule),
         ).where(Plan.id == plan_id)
     )
     plan = result.scalar_one_or_none()

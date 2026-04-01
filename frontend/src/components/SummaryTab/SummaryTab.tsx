@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useUpdatePlan, useUpdatePlanConfig } from '../../actions/plans';
 import type { PlanConfig } from '../../types';
 import type { SummaryTabProps } from './SummaryTab.types';
+import { MembershipRulesSection } from '../MembershipRules/MembershipRulesSection';
 import {
   Container,
   SectionTitle,
@@ -264,6 +265,12 @@ export function SummaryTab({ plan, planId }: SummaryTabProps) {
           </SaveBtn>
         </SaveBar>
       )}
+
+      <SectionGap />
+
+      {/* ---- Membership Rules ---- */}
+      <SectionTitle>Membership rules</SectionTitle>
+      <MembershipRulesSection planId={planId} membership={plan.membership} />
 
       <SectionGap />
 

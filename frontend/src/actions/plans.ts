@@ -4,6 +4,7 @@ import type {
   PlanCreate,
   PlanUpdate,
   PlanConfig,
+  PlanMembership,
   ChatRequest,
   ChatResponse,
   ChatFileOut,
@@ -17,6 +18,7 @@ import type {
   Conversation,
   ConversationSummary,
   LineageDAG,
+  Employee,
 } from '../types';
 
 const BASE = '/api';
@@ -304,3 +306,47 @@ export const useUpdatePlanTemplate = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plan-templates'] }),
   });
 };
+
+// ---- Membership Rules ----
+
+export interface FieldValues {
+  department: string[];
+  role: string[];
+  country: string[];
+}
+
+export const fetchEmployeeFieldValues = () =>
+  http<FieldValues>('/employees/field-values');
+
+export const fetchMembership = (planId: string) =>
+  http<PlanMembership>(`/plans/${planId}/membership`);
+
+export const updateMembership = (planId: string, data: PlanMembership) =>
+  http<PlanMembership>(`/plans/${planId}/membership`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+
+export const fetchPlanMembers = (planId: string) =>
+  http<Employee[]>(`/plans/${planId}/members`);
+
+export const useEmployeeFieldValues = () =>
+  useQuery({ queryKey: ['employee-field-values'], queryFn: fetchEmployeeFieldValues });
+
+export const useUpdateMembership = (planId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: PlanMembership) => updateMembership(planId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plan', planId] });
+      qc.invalidateQueries({ queryKey: ['plan-members', planId] });
+    },
+  });
+};
+
+export const usePlanMembers = (planId: string, enabled = true) =>
+  useQuery({
+    queryKey: ['plan-members', planId],
+    queryFn: () => fetchPlanMembers(planId),
+    enabled: !!planId && enabled,
+  });

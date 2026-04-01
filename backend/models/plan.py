@@ -35,6 +35,9 @@ class Plan(Base):
     inferred_config: Mapped["PlanInferredConfig | None"] = relationship(
         back_populates="plan", uselist=False, cascade="all, delete-orphan"
     )
+    membership_rule: Mapped["PlanMembershipRule | None"] = relationship(
+        back_populates="plan", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class PlanConfig(Base):
@@ -82,6 +85,21 @@ class PlanInferredConfig(Base):
     )
 
     plan: Mapped["Plan"] = relationship(back_populates="inferred_config")
+
+
+class PlanMembershipRule(Base):
+    __tablename__ = "plan_membership_rules"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_new_id)
+    plan_id: Mapped[str] = mapped_column(String(12), ForeignKey("plans.id"), nullable=False, unique=True)
+    match_type: Mapped[str] = mapped_column(String(10), nullable=False, default="all")
+    rules_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    exceptions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    plan: Mapped["Plan"] = relationship(back_populates="membership_rule")
 
 
 class PlanCycle(Base):

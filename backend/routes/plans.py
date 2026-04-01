@@ -45,6 +45,7 @@ from schemas.commission import (
     SendToPayrollResponse,
 )
 from services.commission_payout_service import CommissionPayoutService
+from routes.membership import _rule_to_out
 from services.data_access import load_plan
 from services.executor import (
     ExecutionResult,
@@ -109,6 +110,10 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
         for c in plan.cycles
     ] if hasattr(plan, 'cycles') and plan.cycles else None
 
+    membership = None
+    if hasattr(plan, 'membership_rule') and plan.membership_rule:
+        membership = _rule_to_out(plan.membership_rule)
+
     return PlanOut(
         plan_id=plan.id,
         name=plan.name,
@@ -123,6 +128,7 @@ async def _plan_to_out(plan: Plan, session: AsyncSession) -> PlanOut:
         inferred_config=plan.inferred_config.content if plan.inferred_config else None,
         conversation_id=conv_id,
         skills=skills,
+        membership=membership,
     )
 
 
@@ -134,7 +140,8 @@ async def list_plans(session: AsyncSession = Depends(get_db)):
     result = await session.execute(
         select(Plan).options(
             selectinload(Plan.artifacts), selectinload(Plan.config),
-            selectinload(Plan.inferred_config), selectinload(Plan.cycles)
+            selectinload(Plan.inferred_config), selectinload(Plan.cycles),
+            selectinload(Plan.membership_rule),
         ).order_by(Plan.created_at.desc())
     )
     return [await _plan_to_out(p, session) for p in result.scalars()]

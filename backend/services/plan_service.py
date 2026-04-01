@@ -68,3 +68,10 @@ class PlanServiceBase(ABC):
     async def get_inferred_config(self) -> str | None:
         """Return the inferred config YAML for the current plan, or None."""
         ...
+
+    @abstractmethod
+    async def set_membership_rules(
+        self, match_type: str, rules: list[dict], exceptions: list[dict],
+    ) -> dict:
+        """Create or update membership rules for the current plan. Returns the saved rules."""
+        ...

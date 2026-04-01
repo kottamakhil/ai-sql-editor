@@ -47,6 +47,18 @@ export interface Plan {
   config: PlanConfig;
   inferred_config?: string | null;
   skills?: PlanSkill[] | null;
+  membership?: PlanMembership | null;
+}
+
+export interface MembershipRule {
+  field: string;
+  values: string[];
+}
+
+export interface PlanMembership {
+  match_type: 'all' | 'any';
+  rules: MembershipRule[];
+  exceptions: MembershipRule[];
 }
 
 export interface PlanCreate {

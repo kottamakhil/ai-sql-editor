@@ -212,6 +212,25 @@ class SqlAlchemyPlanService(PlanServiceBase):
             return None
         return self._plan.inferred_config.content
 
+    async def set_membership_rules(
+        self, match_type: str, rules: list[dict], exceptions: list[dict],
+    ) -> dict:
+        from services.membership_service import upsert_membership
+
+        plan = self._require_plan()
+        membership = await upsert_membership(
+            plan.id, match_type, rules, exceptions, self._session,
+        )
+        await self._session.commit()
+        log.info("Set membership rules for plan %s", plan.id)
+
+        import json
+        return {
+            "match_type": membership.match_type,
+            "rules": json.loads(membership.rules_json),
+            "exceptions": json.loads(membership.exceptions_json),
+        }
+
     @staticmethod
     def _plan_to_dict(plan: Plan) -> dict:
         return {

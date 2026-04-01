@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from schemas.membership import MembershipOut
 from services.executor import ExecutionResult
 
 
@@ -94,6 +95,7 @@ class PlanOut(BaseModel):
     inferred_config: str | None = None
     conversation_id: str | None = None
     skills: list[ConversationSkillOut] | None = None
+    membership: MembershipOut | None = None
 
 
 class CreateArtifactRequest(BaseModel):
