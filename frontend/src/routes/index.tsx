@@ -9,10 +9,6 @@ import { HiringFlow } from '../containers/HiringFlow/HiringFlow';
 
 export const router = createBrowserRouter([
   {
-    path: '/compensation/new-hire',
-    element: <HiringFlow />,
-  },
-  {
     element: <AppLayout />,
     children: [
       {
@@ -34,6 +30,10 @@ export const router = createBrowserRouter([
       {
         path: '/compensation/employees/:employeeId',
         element: <EmployeePayouts />,
+      },
+      {
+        path: '/compensation/new-hire',
+        element: <HiringFlow />,
       },
       {
         path: '*',
