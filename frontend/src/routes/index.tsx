@@ -6,6 +6,7 @@ import { SkillsEditor } from '../containers/SkillsEditor/SkillsEditor';
 import { PlanTemplateEditor } from '../containers/PlanTemplateEditor/PlanTemplateEditor';
 import { EmployeePayouts } from '../containers/EmployeePayouts/EmployeePayouts';
 import { HiringFlow } from '../containers/HiringFlow/HiringFlow';
+import { PaymentObligations } from '../containers/PaymentObligations/PaymentObligations';
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +35,10 @@ export const router = createBrowserRouter([
       {
         path: '/compensation/new-hire',
         element: <HiringFlow />,
+      },
+      {
+        path: '/compensation/payment-obligations',
+        element: <PaymentObligations />,
       },
       {
         path: '*',

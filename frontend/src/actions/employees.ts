@@ -141,3 +141,42 @@ export const useCreatePaymentSchedule = () => {
     },
   });
 };
+
+// ---- Payment Obligations ----
+
+export interface ObligationPayout {
+  payout_id: string;
+  group_id: string;
+  amount: number;
+  date: string;
+  status: string;
+}
+
+export interface ObligationEmployee {
+  employee_id: string;
+  name: string;
+  role: string;
+  department: string;
+  obligation_count: number;
+  outstanding: number;
+  paid: number;
+  payouts: ObligationPayout[];
+}
+
+export interface ObligationSummary {
+  total_outstanding: number;
+  total_paid: number;
+  scheduled_count: number;
+  paid_count: number;
+}
+
+export interface PaymentObligationsData {
+  summary: ObligationSummary;
+  employees: ObligationEmployee[];
+}
+
+export const fetchPaymentObligations = () =>
+  http<PaymentObligationsData>('/payment-obligations');
+
+export const usePaymentObligations = () =>
+  useQuery({ queryKey: ['payment-obligations'], queryFn: fetchPaymentObligations });
