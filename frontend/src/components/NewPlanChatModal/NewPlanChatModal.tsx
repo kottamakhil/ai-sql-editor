@@ -1,24 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Markdown from 'react-markdown';
-import { useChat, useSkills, uploadChatFile } from '../../actions/plans';
+import { uploadChatFile } from '../../actions/plans';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClarificationCard } from '../ClarificationCard/ClarificationCard';
+import { ThinkingProgress } from '../ThinkingProgress/ThinkingProgress';
+import { useBridge, bridgeStart, bridgeClear } from '../../streaming/streamBridge';
 import type { ClarificationQuestion } from '../../types';
 import type { DisplayMessage, NewPlanChatModalProps } from './NewPlanChatModal.types';
 import {
   Overlay,
   Modal,
-  ModalHeader,
-  ModalTitle,
   CloseBtn,
   MessagesArea,
   WelcomeHint,
+  WelcomeInput,
   MessageBubble,
-  ThinkingIndicator,
   ClarificationWrapper,
   InputArea,
   InputWrapper,
+  ActionGroup,
   Textarea,
   SendBtn,
   AttachBtn,
@@ -26,11 +27,6 @@ import {
   FileChip,
   FileChipName,
   FileChipRemove,
-  SkillPickerSection,
-  SkillPickerLabel,
-  SkillChips,
-  SkillChip,
-  SkillChipSkeleton,
 } from './NewPlanChatModal.styles';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -58,27 +54,78 @@ interface PendingFile {
 export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const chatMutation = useChat();
-  const { data: skills, isLoading: isLoadingSkills } = useSkills();
+  const bridge = useBridge();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  const [isThinking, setIsThinking] = useState(false);
   const [pendingQuestions, setPendingQuestions] = useState<ClarificationQuestion[] | null>(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [collectedAnswers, setCollectedAnswers] = useState<{ question: string; answer: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  /* Artifact expansion not available in modal — user navigates to plan page first */
+
+  const [navigated, setNavigated] = useState(false);
+  const [handledComplete, setHandledComplete] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Navigate immediately when plan is created (early, before stream finishes)
+  useEffect(() => {
+    if (bridge.planId && !navigated) {
+      // eslint-disable-next-line -- responding to external store change
+      setNavigated(true);
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      onClose();
+      navigate(`/variable-compensation/plans/${bridge.planId}`);
+    }
+  }, [bridge.planId, navigated, queryClient, onClose, navigate]);
+
+  // Handle stream completion when modal is still open (no plan created — e.g. clarification only)
+  useEffect(() => {
+    if (!bridge.thinkingComplete || navigated || handledComplete) return;
+    // eslint-disable-next-line -- responding to external store change
+    setHandledComplete(true);
+
+    if (bridge.error) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
+      ]);
+      bridgeClear();
+      return;
+    }
+
+    if (bridge.response) {
+      const res = bridge.response;
+      setConversationId(res.conversation_id);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: res.response },
+      ]);
+
+      if (res.pending_questions && res.pending_questions.length > 0) {
+        setPendingQuestions(res.pending_questions as ClarificationQuestion[]);
+        setQuestionIndex(0);
+        setCollectedAnswers([]);
+      }
+
+      if (res.plan) {
+        queryClient.invalidateQueries({ queryKey: ['plans'] });
+        onClose();
+        navigate(`/variable-compensation/plans/${res.plan.plan_id}`);
+      }
+
+      bridgeClear();
+    }
+  }, [bridge.thinkingComplete, bridge.error, bridge.response, navigated, handledComplete, queryClient, onClose, navigate]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isThinking, pendingQuestions]);
+  }, [messages, bridge.isStreaming, bridge.steps, pendingQuestions]);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -87,17 +134,8 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, []);
 
-  const toggleSkill = (skillId: string) => {
-    setSelectedSkills((prev) => {
-      const next = new Set(prev);
-      if (next.has(skillId)) next.delete(skillId);
-      else next.add(skillId);
-      return next;
-    });
-  };
-
-  const hasStarted = messages.length > 0 || isThinking;
-  const canSend = (input.trim().length > 0 || pendingFiles.length > 0) && !isThinking && !isUploading;
+  const hasStarted = messages.length > 0 || bridge.isStreaming;
+  const canSend = (input.trim().length > 0 || pendingFiles.length > 0) && !bridge.isStreaming && !isUploading;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
@@ -129,57 +167,26 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   const sendMessage = useCallback((text: string, fileIds?: string[]) => {
     const hasText = text.trim().length > 0;
     const hasFiles = fileIds && fileIds.length > 0;
-    if ((!hasText && !hasFiles) || isThinking) return;
+    if ((!hasText && !hasFiles) || bridge.isStreaming) return;
 
     const displayText = hasText ? text : `Attached ${fileIds!.length} file${fileIds!.length > 1 ? 's' : ''}`;
-    setMessages((prev) => [...prev, { role: 'user', content: displayText }]);
-    setIsThinking(true);
+    const newUserMsg = { role: 'user', content: displayText };
+    setMessages((prev) => [...prev, newUserMsg]);
     setPendingQuestions(null);
+    setNavigated(false);
+    setHandledComplete(false);
 
     const payload: { message: string; conversation_id: string | null; skill_ids?: string[]; file_ids?: string[] } = {
       message: hasText ? text : 'Please analyze the attached file(s).',
       conversation_id: conversationId,
     };
-    if (!conversationId && selectedSkills.size > 0) {
-      payload.skill_ids = Array.from(selectedSkills);
-    }
     if (fileIds && fileIds.length > 0) {
       payload.file_ids = fileIds;
     }
 
-    chatMutation.mutate(
-      payload,
-      {
-        onSuccess: (res) => {
-          setConversationId(res.conversation_id);
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: res.response },
-          ]);
-          setIsThinking(false);
-
-          if (res.pending_questions && res.pending_questions.length > 0) {
-            setPendingQuestions(res.pending_questions);
-            setQuestionIndex(0);
-            setCollectedAnswers([]);
-          }
-
-          if (res.plan) {
-            queryClient.invalidateQueries({ queryKey: ['plans'] });
-            onClose();
-            navigate(`/variable-compensation/plans/${res.plan.plan_id}`);
-          }
-        },
-        onError: () => {
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
-          ]);
-          setIsThinking(false);
-        },
-      },
-    );
-  }, [isThinking, conversationId, selectedSkills, chatMutation, queryClient, navigate, onClose]);
+    const bridgeMessages = [...messages, newUserMsg].filter((m) => m.role === 'user');
+    bridgeStart(payload, bridgeMessages);
+  }, [bridge.isStreaming, conversationId, messages]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -265,54 +272,23 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
   };
 
   return (
+    <>
     <Overlay onClick={handleOverlayClick}>
       <Modal>
-        <ModalHeader>
-          <ModalTitle>New Plan</ModalTitle>
-          <CloseBtn onClick={onClose} title="Close">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </CloseBtn>
-        </ModalHeader>
-
+        <CloseBtn onClick={onClose} title="Close">ESC</CloseBtn>
         <MessagesArea>
           {!hasStarted && (
             <>
               <WelcomeHint>
-                <h3>Describe your compensation plan</h3>
-                <p>Tell us about your plan and we'll help you build it with AI.</p>
+                <WelcomeInput
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={'Tell us about your plan...\n\ne.g. Sales commissions plan, Referral bonus, Annual bonus'}
+                  spellCheck={false}
+                  autoFocus
+                />
               </WelcomeHint>
-              {isLoadingSkills ? (
-                <SkillPickerSection>
-                  <SkillPickerLabel>Skills to include</SkillPickerLabel>
-                  <SkillChips>
-                    <SkillChipSkeleton /><SkillChipSkeleton /><SkillChipSkeleton />
-                  </SkillChips>
-                </SkillPickerSection>
-              ) : skills && skills.length > 0 ? (
-                <SkillPickerSection>
-                  <SkillPickerLabel>Skills to include</SkillPickerLabel>
-                  <SkillChips>
-                    {skills.map((skill) => (
-                      <SkillChip
-                        key={skill.skill_id}
-                        $selected={selectedSkills.has(skill.skill_id)}
-                        onClick={() => toggleSkill(skill.skill_id)}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          {selectedSkills.has(skill.skill_id) ? (
-                            <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
-                          ) : (
-                            <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                          )}
-                        </svg>
-                        {skill.name}
-                      </SkillChip>
-                    ))}
-                  </SkillChips>
-                </SkillPickerSection>
-              ) : null}
             </>
           )}
 
@@ -326,13 +302,15 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
             </MessageBubble>
           ))}
 
-          {isThinking && (
-            <ThinkingIndicator>
-              Thinking <span><i>.</i><i>.</i><i>.</i></span>
-            </ThinkingIndicator>
+          {bridge.isStreaming && (
+            <ThinkingProgress
+              steps={bridge.steps}
+              isComplete={false}
+              onExpandArtifact={() => {}}
+            />
           )}
 
-          {pendingQuestions && !isThinking && (
+          {pendingQuestions && !bridge.isStreaming && (
             <ClarificationWrapper>
               <ClarificationCard
                 questions={pendingQuestions}
@@ -371,38 +349,62 @@ export function NewPlanChatModal({ onClose }: NewPlanChatModalProps) {
             </FileChipsRow>
           )}
           <InputWrapper>
-            <AttachBtn
-              $uploading={isUploading}
-              onClick={() => !isUploading && fileInputRef.current?.click()}
-              title={isUploading ? 'Uploading...' : 'Attach file'}
-            >
-              {isUploading ? (
+            <ActionGroup>
+              <AttachBtn
+                $uploading={isUploading}
+                onClick={() => !isUploading && fileInputRef.current?.click()}
+                title={isUploading ? 'Uploading...' : 'Attach file'}
+              >
+                {isUploading ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </AttachBtn>
+              <AttachBtn title="Connectors">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" />
+                  <ellipse cx="7" cy="6" rx="3.5" ry="1.8" />
+                  <path d="M3.5 6v5c0 1 1.6 1.8 3.5 1.8s3.5-.8 3.5-1.8V6" strokeLinecap="round" />
+                  <path d="M14 8h4a2 2 0 0 1 2 2v2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M14 16h4a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+                  <circle cx="13" cy="12" r="1.5" />
                 </svg>
-              ) : (
+              </AttachBtn>
+            </ActionGroup>
+            {hasStarted ? (
+              <Textarea
+                ref={textareaRef}
+                rows={1}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); autoResize(); }}
+                onKeyDown={handleKeyDown}
+                placeholder=""
+                autoFocus
+              />
+            ) : (
+              <div style={{ flex: 1 }} />
+            )}
+            <ActionGroup>
+              <AttachBtn title="Files">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H3z" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-              )}
-            </AttachBtn>
-            <Textarea
-              ref={textareaRef}
-              rows={1}
-              value={input}
-              onChange={(e) => { setInput(e.target.value); autoResize(); }}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe your compensation plans..."
-              autoFocus
-            />
-            <SendBtn $active={canSend} onClick={handleSend} title="Send">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </SendBtn>
+              </AttachBtn>
+              <SendBtn $active={canSend} onClick={handleSend} title="Send">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </SendBtn>
+            </ActionGroup>
           </InputWrapper>
         </InputArea>
       </Modal>
     </Overlay>
+    </>
   );
 }

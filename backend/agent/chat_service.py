@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -25,6 +27,8 @@ from models import (
 )
 from services.data_access import get_schema_ddls
 from services.sqlalchemy_plan_service import SqlAlchemyPlanService
+
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +99,88 @@ async def process_chat(
     if plan_service.plan and not conversation.plan_id:
         conversation.plan_id = plan_service.plan.id
         log.info("Linked conversation %s to plan %s", conversation.id, plan_service.plan.id)
+
+    await _save_conversation_messages(session, conversation, message, messages, history)
+
+    if agent_result.pending_questions:
+        conversation.pending_questions_json = json.dumps(agent_result.pending_questions)
+    else:
+        conversation.pending_questions_json = None
+
+    await session.commit()
+
+    final_plan = agent_result.plan
+    final_artifacts = await plan_service.get_artifacts()
+    composed_sql = _compose_sql(final_artifacts)
+
+    return ChatResult(
+        response_text=agent_result.response_text,
+        conversation_id=conversation.id,
+        composed_sql=composed_sql,
+        agent_result=agent_result,
+        plan=final_plan,
+        artifacts=final_artifacts,
+    )
+
+
+async def process_chat_streaming(
+    message: str,
+    conversation_id: str | None,
+    session: AsyncSession,
+    on_progress: ProgressCallback,
+    skill_ids: list[str] | None = None,
+    file_ids: list[str] | None = None,
+) -> ChatResult:
+    """Same as process_chat but forwards on_progress into the agent loop."""
+
+    is_new_conversation = conversation_id is None
+    conversation = await _get_or_create_conversation(conversation_id, session)
+
+    if is_new_conversation and skill_ids:
+        await _pin_skills_to_conversation(conversation.id, skill_ids, session)
+
+    plan = None
+    if conversation.plan_id:
+        plan = await _load_plan(conversation.plan_id, session)
+
+    plan_service = SqlAlchemyPlanService(session, plan)
+    schema_ddls = await get_schema_ddls(session)
+    skills_dict = await _load_conversation_skills(conversation.id, session)
+
+    plan_dict = await plan_service.get_plan()
+    artifacts_dict = await plan_service.get_artifacts()
+    plan_template = await _load_active_template(session)
+    inferred_config = await plan_service.get_inferred_config()
+
+    system_prompt = build_system_prompt(
+        plan_dict, artifacts_dict, skills_dict, schema_ddls,
+        plan_template=plan_template,
+        inferred_config=inferred_config,
+    )
+    history = _load_history(conversation)
+    user_content = await _build_user_content(message, file_ids, session)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        *history,
+        {"role": "user", "content": user_content},
+    ]
+
+    agent_result = await run_agent_loop(
+        messages=messages,
+        plan_service=plan_service,
+        skills=skills_dict,
+        schema_ddls=schema_ddls,
+        on_progress=on_progress,
+    )
+    log.info(
+        "Agent finished (streaming): %d iteration(s), %d tool call(s)",
+        agent_result.iterations,
+        len(agent_result.tool_calls),
+    )
+
+    if plan_service.plan and not conversation.plan_id:
+        conversation.plan_id = plan_service.plan.id
 
     await _save_conversation_messages(session, conversation, message, messages, history)
 

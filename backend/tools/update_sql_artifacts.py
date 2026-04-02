@@ -53,7 +53,9 @@ class UpdateSqlArtifactsTool(BaseTool):
             return ToolResult(success=False, error="No artifacts provided")
 
         try:
-            results = await context.plan_service.replace_artifacts(specs)
+            results = await context.plan_service.replace_artifacts(
+                specs, on_progress=context.on_progress,
+            )
         except ValueError as exc:
             return ToolResult(success=False, error=str(exc))
 

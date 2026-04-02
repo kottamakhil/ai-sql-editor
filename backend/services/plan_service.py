@@ -7,7 +7,10 @@ Swap the implementation to port across storage backends (SQLAlchemy, Django+Mong
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from typing import Any
+
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class PlanServiceBase(ABC):
@@ -32,7 +35,9 @@ class PlanServiceBase(ABC):
         ...
 
     @abstractmethod
-    async def replace_artifacts(self, specs: list[dict]) -> list[dict]:
+    async def replace_artifacts(
+        self, specs: list[dict], on_progress: ProgressCallback | None = None,
+    ) -> list[dict]:
         """Delete all artifacts and create new ones from specs [{name, sql}].
 
         Returns list of dicts with name, sql, row_count, columns, error per artifact.

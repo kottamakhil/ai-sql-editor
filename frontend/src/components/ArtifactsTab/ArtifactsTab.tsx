@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ArtifactCard } from '../ArtifactCard/ArtifactCard';
+import { usePlan } from '../../actions/plans';
+import { PlanTakeover } from '../PlanTakeover/PlanTakeover';
 import type { ArtifactsTabProps } from './ArtifactsTab.types';
 import { Container, EmptyState } from './ArtifactsTab.styles';
+import { artifactDisplayName, isPayoutArtifact } from '../../utils/artifactLabels';
 import styled from 'styled-components';
 
 const PeriodBar = styled.div`
@@ -9,13 +12,36 @@ const PeriodBar = styled.div`
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+  flex-wrap: wrap;
 `;
 
-const PeriodLabel = styled.span`
+const PeriodControls = styled.div`
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+const SearchInput = styled.input`
+  min-width: 220px;
+  padding: 6px 12px;
   font-size: 13px;
-  color: #6b7280;
-  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  outline: none;
+  color: #1a1a2e;
+  background: #fff;
+
+  &::placeholder {
+    color: #9ca3af;
+  }
+
+  &:focus {
+    border-color: #5b1647;
+    box-shadow: 0 0 0 2px rgba(91, 22, 71, 0.1);
+  }
 `;
 
 const DropdownWrapper = styled.div`
@@ -156,9 +182,13 @@ function PeriodDropdown({
 }
 
 export function ArtifactsTab({ artifacts, planId, cycles }: ArtifactsTabProps) {
+  const { data: planData } = usePlan(planId);
   const hasCycles = cycles && cycles.length > 0;
   const defaultCycleId = hasCycles ? cycles[cycles.length - 1].cycle_id : undefined;
   const [selectedCycleId, setSelectedCycleId] = useState<string | undefined>(defaultCycleId);
+  const [takeoverArtifactName, setTakeoverArtifactName] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortMode, setSortMode] = useState<'most_recent' | 'highest_value'>('most_recent');
 
   if (artifacts.length === 0) {
     return (
@@ -175,26 +205,66 @@ export function ArtifactsTab({ artifacts, planId, cycles }: ArtifactsTabProps) {
     { value: '', label: 'All Periods' },
   ];
 
+  const sortOptions: DropdownOption[] = [
+    { value: 'most_recent', label: 'Most recent' },
+    { value: 'highest_value', label: 'Highest value' },
+  ];
+
+  const term = searchTerm.trim().toLowerCase();
+  const searchedArtifacts = term
+    ? artifacts.filter((artifact) => {
+        const label = artifactDisplayName(artifact.name ?? '').toLowerCase();
+        const raw = (artifact.name ?? '').toLowerCase();
+        return label.includes(term) || raw.includes(term);
+      })
+    : artifacts;
+  const visibleArtifacts = sortMode === 'highest_value'
+    ? [...searchedArtifacts].sort((a, b) => Number(isPayoutArtifact(b.name)) - Number(isPayoutArtifact(a.name)))
+    : searchedArtifacts;
+
   return (
     <Container>
-      {hasCycles && (
-        <PeriodBar>
-          <PeriodLabel>Period:</PeriodLabel>
+      <PeriodBar>
+        <SearchInput
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search tables..."
+          spellCheck={false}
+        />
+        {hasCycles && (
+          <PeriodControls>
           <PeriodDropdown
             value={selectedCycleId || ''}
             options={periodOptions}
             onChange={(val) => setSelectedCycleId(val || undefined)}
           />
-        </PeriodBar>
+            <PeriodDropdown
+              value={sortMode}
+              options={sortOptions}
+              onChange={(val) => setSortMode(val as 'most_recent' | 'highest_value')}
+            />
+          </PeriodControls>
+        )}
+      </PeriodBar>
+      {visibleArtifacts.length === 0 && (
+        <EmptyState>No matching tables.</EmptyState>
       )}
-      {artifacts.map((artifact) => (
+      {visibleArtifacts.map((artifact) => (
         <ArtifactCard
           key={artifact.artifact_id}
           artifact={artifact}
           planId={planId}
           cycleId={selectedCycleId}
+          onExpand={setTakeoverArtifactName}
         />
       ))}
+      {takeoverArtifactName && planData && (
+        <PlanTakeover
+          plan={planData}
+          initialArtifactName={takeoverArtifactName}
+          onClose={() => setTakeoverArtifactName(null)}
+        />
+      )}
     </Container>
   );
 }

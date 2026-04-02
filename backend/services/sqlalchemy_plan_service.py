@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from models import Plan, SqlArtifact
 from services.executor import execute_artifact, execute_raw_sql
-from services.plan_service import PlanServiceBase
+from services.plan_service import PlanServiceBase, ProgressCallback
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +79,9 @@ class SqlAlchemyPlanService(PlanServiceBase):
         plan = await self._reload_plan()
         return self._plan_to_dict(plan)
 
-    async def replace_artifacts(self, specs: list[dict]) -> list[dict]:
+    async def replace_artifacts(
+        self, specs: list[dict], on_progress: ProgressCallback | None = None,
+    ) -> list[dict]:
         plan = self._require_plan()
 
         old = await self._load_artifacts()
@@ -99,13 +101,29 @@ class SqlAlchemyPlanService(PlanServiceBase):
         results = []
         for artifact in all_artifacts:
             exec_result = await execute_artifact(artifact, all_artifacts, self._session)
-            results.append({
+            entry = {
                 "name": artifact.name,
                 "sql": artifact.sql_expression,
                 "row_count": exec_result.row_count,
                 "columns": exec_result.columns,
                 "error": exec_result.error,
-            })
+            }
+            results.append(entry)
+            if on_progress:
+                try:
+                    rows = exec_result.rows[:5] if exec_result.rows else []
+                    await on_progress({
+                        "type": "artifact",
+                        "name": artifact.name,
+                        "sql": artifact.sql_expression,
+                        "columns": exec_result.columns,
+                        "rows": rows,
+                        "row_count": exec_result.row_count,
+                        "status": "error" if exec_result.error else "success",
+                        "error": exec_result.error,
+                    })
+                except Exception:
+                    log.debug("Progress callback error (ignored)", exc_info=True)
         return results
 
     async def get_artifacts(self) -> list[dict]:
