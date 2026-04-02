@@ -144,7 +144,7 @@ async def process_chat_streaming(
         plan = await _load_plan(conversation.plan_id, session)
 
     plan_service = SqlAlchemyPlanService(session, plan)
-    schema_ddls = await _get_schema_ddls(session)
+    schema_ddls = await get_schema_ddls(session)
     skills_dict = await _load_conversation_skills(conversation.id, session)
 
     plan_dict = await plan_service.get_plan()
